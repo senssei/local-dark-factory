@@ -147,8 +147,9 @@ This plan defines the step-by-step development phases for **`06-dark-factory`** 
 - [x] Add `.github/workflows/publish.yml`: automated release workflow with PyPI Trusted Publishing (OIDC).
 
 ### 9.3 GitHub Remote & Repository Setup
-- [ ] Create GitHub repository `senssei/local-dark-factory` (using `gh repo create senssei/local-dark-factory --public`).
-- [ ] Push local `main` branch and verify remote repository.
+- [x] Create GitHub repository `senssei/local-dark-factory`.
+- [x] Push local `main` branch and verify remote repository.
+- [x] Tag and publish release `v0.1.0` with assets on GitHub.
 
 ### 9.4 PyPI Publication
 - [ ] Configure PyPI Trusted Publisher for repository `senssei/local-dark-factory`.
