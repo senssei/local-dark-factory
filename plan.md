@@ -131,3 +131,27 @@ This plan defines the step-by-step development phases for **`06-dark-factory`** 
 ### 8.5 Code Hygiene
 - [ ] Ensure SQLite connection closing with `contextlib.closing` or explicit `conn.close()`.
 - [ ] Single atomic transaction for status transition + operator notes in `review_run`.
+
+---
+
+## Phase 9: Packaging & Release (GitHub & PyPI)
+
+### 9.1 Package Build & Metadata Validation
+- [x] Configure package metadata in `pyproject.toml` with `name = "local-dark-factory"`.
+- [x] Create `dark_factory/__init__.py` with `__version__ = "0.1.0"`.
+- [ ] Validate wheel and source distribution build locally via `python3 -m build`.
+- [ ] Verify distribution packages with `twine check --strict dist/*`.
+
+### 9.2 GitHub CI & Automation Workflows
+- [ ] Add `.github/workflows/ci.yml`: automated matrix tests (`pytest`) and lint (`ruff`) on Python 3.11 and 3.12.
+- [ ] Add `.github/workflows/publish.yml`: automated release workflow with PyPI Trusted Publishing (OIDC).
+
+### 9.3 GitHub Remote & Repository Setup
+- [ ] Create GitHub repository `senssei/local-dark-factory` (using `gh repo create senssei/local-dark-factory --public`).
+- [ ] Push local `main` branch and verify remote repository.
+
+### 9.4 PyPI Publication
+- [ ] Configure PyPI Trusted Publisher for repository `senssei/local-dark-factory`.
+- [ ] Publish initial release `v0.1.0` to PyPI.
+- [ ] Verify clean installation in isolated environment: `pip install local-dark-factory`.
+
