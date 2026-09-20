@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#specification-sovereign-dark-factory-06-dark-factory" class="md-skip">
+        <a href="#specification-sovereign-dark-factory-local-dark-factory" class="md-skip">
           Skip to content
         </a>
       
@@ -760,22 +760,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-component-specifications" class="md-nav__link">
+  <a href="#3-subsystem-specifications" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Component Specifications
+        3. Subsystem Specifications
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="3. Component Specifications">
+    <nav class="md-nav" aria-label="3. Subsystem Specifications">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#31-sandbox-layer-dark_factorysandbox" class="md-nav__link">
+  <a href="#31-sandbox-fabric-dark_factorysandbox" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.1. Sandbox Layer (dark_factory.sandbox)
+        3.1. Sandbox Fabric (dark_factory.sandbox)
       
     </span>
   </a>
@@ -826,19 +826,19 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#36-cli-operator-controls-dark_factorycli" class="md-nav__link">
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-operational-commands-cli" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.6. CLI &amp; Operator Controls (dark_factory.cli)
+        4. Operational Commands (CLI)
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1218,22 +1218,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-component-specifications" class="md-nav__link">
+  <a href="#3-subsystem-specifications" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. Component Specifications
+        3. Subsystem Specifications
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="3. Component Specifications">
+    <nav class="md-nav" aria-label="3. Subsystem Specifications">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#31-sandbox-layer-dark_factorysandbox" class="md-nav__link">
+  <a href="#31-sandbox-fabric-dark_factorysandbox" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.1. Sandbox Layer (dark_factory.sandbox)
+        3.1. Sandbox Fabric (dark_factory.sandbox)
       
     </span>
   </a>
@@ -1284,19 +1284,19 @@
   
 </li>
         
-          <li class="md-nav__item">
-  <a href="#36-cli-operator-controls-dark_factorycli" class="md-nav__link">
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-operational-commands-cli" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3.6. CLI &amp; Operator Controls (dark_factory.cli)
+        4. Operational Commands (CLI)
       
     </span>
   </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
@@ -1325,7 +1325,7 @@
   
 
 
-<h1 id="specification-sovereign-dark-factory-06-dark-factory">Specification: Sovereign Dark Factory (<code>06-dark-factory</code>)<a class="headerlink" href="#specification-sovereign-dark-factory-06-dark-factory" title="Permanent link">&para;</a></h1>
+<h1 id="specification-sovereign-dark-factory-local-dark-factory">Specification: Sovereign Dark Factory (<code>local-dark-factory</code>)<a class="headerlink" href="#specification-sovereign-dark-factory-local-dark-factory" title="Permanent link">&para;</a></h1>
 <h2 id="1-system-architecture">1. System Architecture<a class="headerlink" href="#1-system-architecture" title="Permanent link">&para;</a></h2>
 <p>The Sovereign Dark Factory implements a 6-stage lifecycle for autonomous code modification:</p>
 <pre class="mermaid"><code>sequenceDiagram
@@ -1334,7 +1334,7 @@
     participant CLI as dark-factory CLI
     participant Engine as Durable Engine (SQLite)
     participant Sandbox as GitWorktree Sandbox
-    participant Harness as LocalCoder Harness (05)
+    participant Harness as LocalCoder Harness
     participant Model as Local LLM (Ollama/Prism)
     participant Gate as Verification Runner
     participant Locker as Evidence Locker
@@ -1386,67 +1386,73 @@
 </span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    <span class="n">REJECTED</span> <span class="o">=</span> <span class="s2">"REJECTED"</span>
 </span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    <span class="n">FAILED</span> <span class="o">=</span> <span class="s2">"FAILED"</span>
 </span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>    <span class="n">TIMED_OUT</span> <span class="o">=</span> <span class="s2">"TIMED_OUT"</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="nd">@dataclass</span>
-</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="k">class</span><span class="w"> </span><span class="nc">VerificationStep</span><span class="p">:</span>
-</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a>    <span class="nb">id</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="n">argv</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">timeout_sec</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">300</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">mandatory</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">""</span>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a><span class="nd">@dataclass</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a><span class="k">class</span><span class="w"> </span><span class="nc">TaskSpec</span><span class="p">:</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a>    <span class="n">repo_path</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">task_prompt</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">base_rev</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"HEAD"</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">agent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"local-coder"</span>
-</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"qwen2.5-coder:14b"</span>
-</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="n">verification_steps</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">VerificationStep</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
-</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">max_healing_attempts</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>    <span class="n">timeout_minutes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">30</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a><span class="nd">@dataclass</span>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a><span class="k">class</span><span class="w"> </span><span class="nc">StepExecution</span><span class="p">:</span>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>    <span class="n">step_id</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>    <span class="n">exit_code</span><span class="p">:</span> <span class="nb">int</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>    <span class="n">stdout</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>    <span class="n">stderr</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>    <span class="n">duration_sec</span><span class="p">:</span> <span class="nb">float</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>    <span class="n">passed</span><span class="p">:</span> <span class="nb">bool</span>
-</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>
-</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a><span class="nd">@dataclass</span>
-</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a><span class="k">class</span><span class="w"> </span><span class="nc">EvidenceManifest</span><span class="p">:</span>
-</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>    <span class="n">run_id</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>    <span class="n">created_at</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a>    <span class="n">completed_at</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a>    <span class="n">status</span><span class="p">:</span> <span class="n">RunStatus</span>
-</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a>    <span class="n">repo_path</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a>    <span class="n">base_rev</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a>    <span class="n">resulting_rev</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
-</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a>    <span class="n">patch_path</span><span class="p">:</span> <span class="nb">str</span>
-</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a>    <span class="n">patch_size_bytes</span><span class="p">:</span> <span class="nb">int</span>
-</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a>    <span class="n">healing_attempts</span><span class="p">:</span> <span class="nb">int</span>
-</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58" href="#__codelineno-0-58"></a>    <span class="n">verification_results</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">StepExecution</span><span class="p">]</span>
-</span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59" href="#__codelineno-0-59"></a>    <span class="n">model_telemetry</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span>
-</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60" href="#__codelineno-0-60"></a>    <span class="n">total_cost_usd</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>    <span class="n">CANCELLED</span> <span class="o">=</span> <span class="s2">"CANCELLED"</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="nd">@dataclass</span>
+</span><span id="__span-0-20"><a id="__codelineno-0-20" name="__codelineno-0-20" href="#__codelineno-0-20"></a><span class="k">class</span><span class="w"> </span><span class="nc">VerificationStep</span><span class="p">:</span>
+</span><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21" href="#__codelineno-0-21"></a>    <span class="nb">id</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22" href="#__codelineno-0-22"></a>    <span class="n">argv</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23" href="#__codelineno-0-23"></a>    <span class="n">timeout_sec</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">300</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24" href="#__codelineno-0-24"></a>    <span class="n">mandatory</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25" href="#__codelineno-0-25"></a>    <span class="n">cwd</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26" href="#__codelineno-0-26"></a>
+</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27" href="#__codelineno-0-27"></a><span class="nd">@dataclass</span>
+</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28" href="#__codelineno-0-28"></a><span class="k">class</span><span class="w"> </span><span class="nc">StepExecution</span><span class="p">:</span>
+</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29" href="#__codelineno-0-29"></a>    <span class="n">step_id</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30" href="#__codelineno-0-30"></a>    <span class="n">exit_code</span><span class="p">:</span> <span class="nb">int</span>
+</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31" href="#__codelineno-0-31"></a>    <span class="n">stdout</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="__span-0-32"><a id="__codelineno-0-32" name="__codelineno-0-32" href="#__codelineno-0-32"></a>    <span class="n">stderr</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="__span-0-33"><a id="__codelineno-0-33" name="__codelineno-0-33" href="#__codelineno-0-33"></a>    <span class="n">duration_sec</span><span class="p">:</span> <span class="nb">float</span>
+</span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34" href="#__codelineno-0-34"></a>    <span class="n">timed_out</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35" href="#__codelineno-0-35"></a>
+</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36" href="#__codelineno-0-36"></a><span class="nd">@dataclass</span>
+</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37" href="#__codelineno-0-37"></a><span class="k">class</span><span class="w"> </span><span class="nc">TaskSpec</span><span class="p">:</span>
+</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38" href="#__codelineno-0-38"></a>    <span class="n">repo_path</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39" href="#__codelineno-0-39"></a>    <span class="n">task_prompt</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40" href="#__codelineno-0-40"></a>    <span class="n">base_rev</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"HEAD"</span>
+</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41" href="#__codelineno-0-41"></a>    <span class="n">agent</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"local-coder"</span>
+</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42" href="#__codelineno-0-42"></a>    <span class="n">model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"qwen2.5-coder:14b"</span>
+</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43" href="#__codelineno-0-43"></a>    <span class="n">verification_steps</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">VerificationStep</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44" href="#__codelineno-0-44"></a>    <span class="n">allow_no_verify</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45" href="#__codelineno-0-45"></a>    <span class="n">protected_paths</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46" href="#__codelineno-0-46"></a>    <span class="n">allow_gate_edits</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47" href="#__codelineno-0-47"></a>    <span class="n">max_healing_attempts</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">3</span>
+</span><span id="__span-0-48"><a id="__codelineno-0-48" name="__codelineno-0-48" href="#__codelineno-0-48"></a>    <span class="n">timeout_minutes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">30</span>
+</span><span id="__span-0-49"><a id="__codelineno-0-49" name="__codelineno-0-49" href="#__codelineno-0-49"></a>    <span class="n">metadata</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+</span><span id="__span-0-50"><a id="__codelineno-0-50" name="__codelineno-0-50" href="#__codelineno-0-50"></a>
+</span><span id="__span-0-51"><a id="__codelineno-0-51" name="__codelineno-0-51" href="#__codelineno-0-51"></a><span class="nd">@dataclass</span>
+</span><span id="__span-0-52"><a id="__codelineno-0-52" name="__codelineno-0-52" href="#__codelineno-0-52"></a><span class="k">class</span><span class="w"> </span><span class="nc">ModelTelemetry</span><span class="p">:</span>
+</span><span id="__span-0-53"><a id="__codelineno-0-53" name="__codelineno-0-53" href="#__codelineno-0-53"></a>    <span class="n">engine</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54" href="#__codelineno-0-54"></a>    <span class="n">model_name</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55" href="#__codelineno-0-55"></a>    <span class="n">prompt_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56" href="#__codelineno-0-56"></a>    <span class="n">completion_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+</span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57" href="#__codelineno-0-57"></a>    <span class="n">total_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+</span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58" href="#__codelineno-0-58"></a>    <span class="n">duration_sec</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+</span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59" href="#__codelineno-0-59"></a>    <span class="n">tokens_per_sec</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+</span><span id="__span-0-60"><a id="__codelineno-0-60" name="__codelineno-0-60" href="#__codelineno-0-60"></a>    <span class="n">cost_usd</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+</span><span id="__span-0-61"><a id="__codelineno-0-61" name="__codelineno-0-61" href="#__codelineno-0-61"></a>
+</span><span id="__span-0-62"><a id="__codelineno-0-62" name="__codelineno-0-62" href="#__codelineno-0-62"></a><span class="nd">@dataclass</span>
+</span><span id="__span-0-63"><a id="__codelineno-0-63" name="__codelineno-0-63" href="#__codelineno-0-63"></a><span class="k">class</span><span class="w"> </span><span class="nc">EvidenceManifest</span><span class="p">:</span>
+</span><span id="__span-0-64"><a id="__codelineno-0-64" name="__codelineno-0-64" href="#__codelineno-0-64"></a>    <span class="n">run_id</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="__span-0-65"><a id="__codelineno-0-65" name="__codelineno-0-65" href="#__codelineno-0-65"></a>    <span class="n">status</span><span class="p">:</span> <span class="n">RunStatus</span>
+</span><span id="__span-0-66"><a id="__codelineno-0-66" name="__codelineno-0-66" href="#__codelineno-0-66"></a>    <span class="n">repo_path</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="__span-0-67"><a id="__codelineno-0-67" name="__codelineno-0-67" href="#__codelineno-0-67"></a>    <span class="n">base_rev</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="__span-0-68"><a id="__codelineno-0-68" name="__codelineno-0-68" href="#__codelineno-0-68"></a>    <span class="n">created_at</span><span class="p">:</span> <span class="nb">str</span>
+</span><span id="__span-0-69"><a id="__codelineno-0-69" name="__codelineno-0-69" href="#__codelineno-0-69"></a>    <span class="n">completed_at</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-70"><a id="__codelineno-0-70" name="__codelineno-0-70" href="#__codelineno-0-70"></a>    <span class="n">resulting_rev</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-71"><a id="__codelineno-0-71" name="__codelineno-0-71" href="#__codelineno-0-71"></a>    <span class="n">patch_path</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-72"><a id="__codelineno-0-72" name="__codelineno-0-72" href="#__codelineno-0-72"></a>    <span class="n">patch_size_bytes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+</span><span id="__span-0-73"><a id="__codelineno-0-73" name="__codelineno-0-73" href="#__codelineno-0-73"></a>    <span class="n">patch_sha256</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-74"><a id="__codelineno-0-74" name="__codelineno-0-74" href="#__codelineno-0-74"></a>    <span class="n">healing_attempts</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+</span><span id="__span-0-75"><a id="__codelineno-0-75" name="__codelineno-0-75" href="#__codelineno-0-75"></a>    <span class="n">verification_results</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">StepExecution</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">list</span><span class="p">)</span>
+</span><span id="__span-0-76"><a id="__codelineno-0-76" name="__codelineno-0-76" href="#__codelineno-0-76"></a>    <span class="n">model_telemetry</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">ModelTelemetry</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-77"><a id="__codelineno-0-77" name="__codelineno-0-77" href="#__codelineno-0-77"></a>    <span class="n">operator_notes</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 </span></code></pre></div>
 <hr />
-<h2 id="3-component-specifications">3. Component Specifications<a class="headerlink" href="#3-component-specifications" title="Permanent link">&para;</a></h2>
-<h3 id="31-sandbox-layer-dark_factorysandbox">3.1. Sandbox Layer (<code>dark_factory.sandbox</code>)<a class="headerlink" href="#31-sandbox-layer-dark_factorysandbox" title="Permanent link">&para;</a></h3>
+<h2 id="3-subsystem-specifications">3. Subsystem Specifications<a class="headerlink" href="#3-subsystem-specifications" title="Permanent link">&para;</a></h2>
+<h3 id="31-sandbox-fabric-dark_factorysandbox">3.1. Sandbox Fabric (<code>dark_factory.sandbox</code>)<a class="headerlink" href="#31-sandbox-fabric-dark_factorysandbox" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>Interface <code>Sandbox</code></strong>:</li>
-<li><code>create(base_rev: str) -&gt; None</code>: Prepares the sandbox.</li>
-<li><code>execute(argv: List[str], env: Optional[Dict[str, str]] = None, timeout: int = 600) -&gt; StepExecution</code>: Runs structured argv without shell interpolation risks.</li>
-<li><code>write_file(rel_path: str, content: bytes) -&gt; None</code>: Writes files into the sandbox.</li>
-<li><code>read_file(rel_path: str) -&gt; bytes</code>: Reads files out.</li>
-<li><code>get_diff() -&gt; str</code>: Runs <code>git diff HEAD</code> inside the sandbox to generate a clean patch.</li>
-<li>
-<p><code>destroy() -&gt; None</code>: Cleans up the sandbox idempotently.</p>
-</li>
-<li>
-<p><strong><code>GitWorktreeSandbox</code> (Default)</strong>:</p>
-</li>
+<li><strong><code>GitWorktreeSandbox</code> (Default)</strong>:</li>
 <li>Uses <code>git worktree add --detach &lt;sandbox_path&gt; &lt;base_rev&gt;</code>.</li>
 <li>Generates zero container overhead (&lt;100ms startup).</li>
 <li>Sanitizes environment variables to prevent host secret leaks.</li>
@@ -1462,8 +1468,8 @@
 <h3 id="32-local-agent-harness-dark_factoryharness">3.2. Local Agent Harness (<code>dark_factory.harness</code>)<a class="headerlink" href="#32-local-agent-harness-dark_factoryharness" title="Permanent link">&para;</a></h3>
 <ul>
 <li><strong><code>LocalCoderHarness</code></strong>:</li>
-<li>Direct integration with <code>../05-local-coders</code>.</li>
-<li>Calls <code>local_coder.client.LocalCoderClient</code> or <code>ask_coder.py</code>.</li>
+<li>Unified local inference harness.</li>
+<li>Calls local LLM endpoints (Ollama <code>/api/generate</code> or Prism <code>/v1/chat/completions</code>).</li>
 <li>Supports automatic engine fallbacks:<ul>
 <li>Primary: Ollama (<code>qwen2.5-coder:14b</code>).</li>
 <li>Secondary: Prism CUDA (<code>http://127.0.0.1:5272/v1</code>).</li>
@@ -1471,13 +1477,13 @@
 </ul>
 </li>
 <li>
-<p>Collects token generation counts, elapsed time, and tokens/sec telemetry based on <code>02-ollama-loadtest</code> patterns.</p>
+<p>Collects token generation counts, elapsed time, and tokens/sec telemetry.</p>
 </li>
 <li>
 <p><strong><code>OpenCodeHarness</code></strong>:</p>
 </li>
-<li>Headless driver for <code>/home/senssei/.opencode/bin/opencode</code>.</li>
-<li>Configures OpenCode to use the local OpenAI-compatible endpoint.</li>
+<li>Headless driver for local autonomous coding agents.</li>
+<li>Configures agent runners to use local OpenAI-compatible endpoints.</li>
 </ul>
 <hr />
 <h3 id="33-deterministic-verification-self-healing-dark_factoryverification">3.3. Deterministic Verification &amp; Self-Healing (<code>dark_factory.verification</code>)<a class="headerlink" href="#33-deterministic-verification-self-healing-dark_factoryverification" title="Permanent link">&para;</a></h3>
@@ -1519,15 +1525,15 @@
 - <code>transcript.log</code>: Complete stdout/stderr trace of agent and verification runs.
 - <code>telemetry.json</code>: GPU and model performance stats.</p>
 <hr />
-<h3 id="36-cli-operator-controls-dark_factorycli">3.6. CLI &amp; Operator Controls (<code>dark_factory.cli</code>)<a class="headerlink" href="#36-cli-operator-controls-dark_factorycli" title="Permanent link">&para;</a></h3>
-<ul>
-<li><code>dark-factory doctor</code>: Verifies Ollama, Prism, GPU VRAM, git binary.</li>
-<li><code>dark-factory run</code>: Submits a task.</li>
-<li><code>dark-factory status [RUN_ID] [--watch]</code>: Streams execution status.</li>
-<li><code>dark-factory describe RUN_ID</code>: Prints manifest, conditions, and diff.</li>
-<li><code>dark-factory review RUN_ID --approve [--branch &lt;name&gt;]</code>: Applies the patch to the target branch.</li>
-<li><code>dark-factory review RUN_ID --reject [--note &lt;reason&gt;]</code>: Rejects and archives the run.</li>
-</ul>
+<h2 id="4-operational-commands-cli">4. Operational Commands (CLI)<a class="headerlink" href="#4-operational-commands-cli" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>dark-factory<span class="w"> </span>doctor
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>dark-factory<span class="w"> </span>run<span class="w"> </span>--task<span class="w"> </span><span class="s2">"TASK"</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>dark-factory<span class="w"> </span>list
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>dark-factory<span class="w"> </span>describe<span class="w"> </span>&lt;RUN_ID&gt;
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>dark-factory<span class="w"> </span>review<span class="w"> </span>&lt;RUN_ID&gt;<span class="w"> </span>--approve<span class="w"> </span><span class="o">[</span>--branch<span class="w"> </span>&lt;NAME&gt;<span class="o">]</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>dark-factory<span class="w"> </span>review<span class="w"> </span>&lt;RUN_ID&gt;<span class="w"> </span>--reject<span class="w"> </span><span class="o">[</span>--note<span class="w"> </span>&lt;REASON&gt;<span class="o">]</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>dark-factory<span class="w"> </span>recover
+</span></code></pre></div>
 
 
 

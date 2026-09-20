@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#intent-sovereign-dark-factory-06-dark-factory" class="md-skip">
+        <a href="#intent-sovereign-dark-factory-local-dark-factory" class="md-skip">
           Skip to content
         </a>
       
@@ -1225,7 +1225,7 @@
   
 
 
-<h1 id="intent-sovereign-dark-factory-06-dark-factory">Intent: Sovereign Dark Factory (<code>06-dark-factory</code>)<a class="headerlink" href="#intent-sovereign-dark-factory-06-dark-factory" title="Permanent link">&para;</a></h1>
+<h1 id="intent-sovereign-dark-factory-local-dark-factory">Intent: Sovereign Dark Factory (<code>local-dark-factory</code>)<a class="headerlink" href="#intent-sovereign-dark-factory-local-dark-factory" title="Permanent link">&para;</a></h1>
 <h2 id="1-problem-statement">1. Problem Statement<a class="headerlink" href="#1-problem-statement" title="Permanent link">&para;</a></h2>
 <p>Modern software engineering is transitioning from interactive, prompt-by-prompt coding to autonomous, 24/7 background agent factories. Recent prototypes in this space—most notably <a href="https://github.com/mitkox/esf">Machinist / ESF (<code>mitkox/esf</code>)</a>—demonstrate the power of combining durable workflows (Temporal) with isolated microVM execution (CubeSandbox) and deterministic verification.</p>
 <p>However, existing implementations suffer from critical systemic flaws that prevent true autonomy and ownership:
@@ -1237,11 +1237,11 @@
 </blockquote>
 <hr />
 <h2 id="2-proposed-outcome-vision">2. Proposed Outcome &amp; Vision<a class="headerlink" href="#2-proposed-outcome-vision" title="Permanent link">&para;</a></h2>
-<p>We will build <strong>Sovereign Dark Factory</strong> (<code>dark-factory</code>): a lightweight, local-first, zero-cloud-token AI Software Factory tailored for developer workstations equipped with NVIDIA RTX GPUs and WSL2/Linux.</p>
+<p>We will build <strong>Sovereign Dark Factory</strong> (<code>local-dark-factory</code>): a lightweight, local-first, zero-cloud-token AI Software Factory tailored for developer workstations equipped with NVIDIA RTX GPUs and WSL2/Linux.</p>
 <p>The human operator transitions from a "boilerplate typist" to an <strong>AI Factory Manager</strong>. The factory operates autonomously around the clock:
 - Tasks are submitted via CLI, scheduled crons, or repository triggers.
 - Each task runs in a fast, disposable, isolated sandbox.
-- The agent harness executes code modifications using local models powered by our unified router (<code>05-local-coders</code>), Ollama (<code>02-ollama-loadtest</code>), and Prism CUDA (<code>03-foundy-local</code>).
+- The agent harness executes code modifications using local models powered by our unified router (<code>local-coder</code>), Ollama, and Prism CUDA.
 - Deterministic verification gates (<code>build.sh</code>, <code>test.sh</code>, <code>pytest</code>) independently judge success. Failing gates feed error traces back into an AST self-healing loop.
 - Verified changes, execution logs, model telemetry, and unified git diffs are preserved in a durable evidence locker.
 - The factory manager reviews the verified patch through a Human-in-the-Loop (HITL) gate (<code>dark-factory review &lt;RUN_ID&gt; --approve / --reject</code>).</p>
@@ -1270,11 +1270,11 @@
 <hr />
 <h2 id="5-success-criteria">5. Success Criteria<a class="headerlink" href="#5-success-criteria" title="Permanent link">&para;</a></h2>
 <ul>
-<li>[ ] <strong>Zero Cloud Cost</strong>: Complete end-to-end task run with $0.00 spent on cloud APIs.</li>
-<li>[ ] <strong>Deterministic Gate Enforcement</strong>: Agent declaring "I am done" does not cause a run to pass; only verification scripts exiting 0 pass.</li>
-<li>[ ] <strong>Automatic Self-Healing</strong>: Compiler and test failures are fed back to the local model to iterate on fixes up to <code>N</code> retries.</li>
-<li>[ ] <strong>Durable Evidence</strong>: Every run saves <code>diff.patch</code>, <code>manifest.json</code>, telemetry (tokens/sec, duration from <code>02-ollama-loadtest</code>), and full logs.</li>
-<li>[ ] <strong>HITL Review</strong>: Operator can inspect and approve/reject patches with a single command.</li>
+<li>[x] <strong>Zero Cloud Cost</strong>: Complete end-to-end task run with $0.00 spent on cloud APIs.</li>
+<li>[x] <strong>Deterministic Gate Enforcement</strong>: Agent declaring "I am done" does not cause a run to pass; only verification scripts exiting 0 pass.</li>
+<li>[x] <strong>Automatic Self-Healing</strong>: Compiler and test failures are fed back to the local model to iterate on fixes up to <code>N</code> retries.</li>
+<li>[x] <strong>Durable Evidence</strong>: Every run saves <code>diff.patch</code>, <code>manifest.json</code>, telemetry (tokens/sec, duration), and full logs.</li>
+<li>[x] <strong>HITL Review</strong>: Operator can inspect and approve/reject patches with a single command.</li>
 </ul>
 
 

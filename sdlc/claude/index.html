@@ -82,7 +82,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#claudemd-operating-manual-for-sovereign-dark-factory-06-dark-factory" class="md-skip">
+        <a href="#claudemd-operating-manual-for-sovereign-dark-factory-local-dark-factory" class="md-skip">
           Skip to content
         </a>
       
@@ -1237,7 +1237,7 @@
   
 
 
-<h1 id="claudemd-operating-manual-for-sovereign-dark-factory-06-dark-factory">CLAUDE.md — Operating Manual for Sovereign Dark Factory (<code>06-dark-factory</code>)<a class="headerlink" href="#claudemd-operating-manual-for-sovereign-dark-factory-06-dark-factory" title="Permanent link">&para;</a></h1>
+<h1 id="claudemd-operating-manual-for-sovereign-dark-factory-local-dark-factory">CLAUDE.md — Operating Manual for Sovereign Dark Factory (<code>local-dark-factory</code>)<a class="headerlink" href="#claudemd-operating-manual-for-sovereign-dark-factory-local-dark-factory" title="Permanent link">&para;</a></h1>
 <p>This repository is <strong>Sovereign Dark Factory</strong>: a local-first, zero-cloud-token autonomous AI Software Factory orchestrator running on Linux/WSL2 with NVIDIA RTX 5070 GPU hardware.</p>
 <hr />
 <h2 id="commands-development-workflow">🚀 Commands &amp; Development Workflow<a class="headerlink" href="#commands-development-workflow" title="Permanent link">&para;</a></h2>
@@ -1245,7 +1245,7 @@
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># Set up virtualenv</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>python3<span class="w"> </span>-m<span class="w"> </span>venv<span class="w"> </span>.venv
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nb">source</span><span class="w"> </span>.venv/bin/activate
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>pip<span class="w"> </span>install<span class="w"> </span>-r<span class="w"> </span>requirements.txt<span class="w"> </span>-r<span class="w"> </span>requirements-dev.txt
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">".[dev,docs]"</span>
 </span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>
 </span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="c1"># Run tests</span>
 </span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>pytest<span class="w"> </span>tests/<span class="w"> </span>-v
@@ -1255,45 +1255,45 @@
 </span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>ruff<span class="w"> </span>format<span class="w"> </span>--check<span class="w"> </span>.
 </span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>
 </span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="c1"># Run dark-factory CLI in dev mode</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>python3<span class="w"> </span>-m<span class="w"> </span>dark_factory.cli<span class="w"> </span>doctor
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>python3<span class="w"> </span>-m<span class="w"> </span>dark_factory.cli<span class="w"> </span>run<span class="w"> </span>--help
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>dark-factory<span class="w"> </span>doctor
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>dark-factory<span class="w"> </span>run<span class="w"> </span>--help
 </span></code></pre></div>
 <hr />
 <h2 id="architecture-component-layout">🏛 Architecture &amp; Component Layout<a class="headerlink" href="#architecture-component-layout" title="Permanent link">&para;</a></h2>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>dark_factory/
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>├── domain/         # Pure data contracts (TaskSpec, RunStatus, EvidenceManifest)
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>├── sandbox/        # Isolated execution fabrics (GitWorktreeSandbox, DockerSandbox)
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>├── harness/        # Agent runners (LocalCoderHarness -&gt; 05-local-coders, OpenCode)
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>├── sandbox/        # Isolated execution fabrics (GitWorktreeSandbox)
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>├── harness/        # Agent runners (LocalCoderHarness)
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>├── verification/   # Deterministic test runners and AST self-healing loop
 </span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>├── orchestrator/   # SQLite-backed durable workflow state machine
 </span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>├── storage/        # Evidence locker (.factory/runs/&lt;RUN_ID&gt;/...)
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>└── cli.py          # Click/Typer or argparse CLI entrypoint
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>└── cli.py          # Operator CLI entrypoint (doctor, run, list, describe, review, recover)
 </span></code></pre></div>
 <hr />
 <h2 id="non-negotiable-core-rules">⚖️ Non-Negotiable Core Rules<a class="headerlink" href="#non-negotiable-core-rules" title="Permanent link">&para;</a></h2>
 <ol>
 <li><strong>Zero Cloud Tokens</strong>:</li>
 <li>Never introduce dependencies on Anthropic, OpenAI, or other paid cloud APIs.</li>
-<li>All model calls must go through the local stack (<code>../05-local-coders</code>, Ollama <code>http://localhost:11434/v1</code>, or Prism <code>http://127.0.0.1:5272/v1</code>).</li>
+<li>All model calls must go through the local stack (Ollama <code>http://localhost:11434</code>, or Prism <code>http://127.0.0.1:5272/v1</code>).</li>
 <li><strong>Deterministic Verification is Authoritative</strong>:</li>
 <li>The LLM <em>never</em> decides if it succeeded. Only verification exit codes decide.</li>
 <li>An exit code of <code>0</code> on all mandatory verification gates is required for a run to be marked <code>AWAITING_REVIEW</code>.</li>
 <li><strong>Sandbox Isolation</strong>:</li>
 <li>Agents must never modify the host repository directly during a run.</li>
-<li>All work happens inside isolated worktrees (<code>GitWorktreeSandbox</code>) or containers.</li>
+<li>All work happens inside isolated worktrees (<code>GitWorktreeSandbox</code>).</li>
 <li>Sandboxes must be completely and idempotently cleaned up on every exit path (success, failure, cancellation, timeout).</li>
 <li><strong>Structured Argv Only</strong>:</li>
-<li>Never execute arbitrary shell strings without quoting. Verification and sandbox commands must accept <code>List[str]</code> (argv) to prevent shell injection.</li>
+<li>Never execute arbitrary shell strings without quoting. Verification and sandbox commands must accept <code>list[str]</code> (argv) to prevent shell injection.</li>
 <li><strong>Durable Evidence</strong>:</li>
 <li>Every run must preserve its <code>diff.patch</code>, <code>manifest.json</code>, stdout/stderr transcripts, and local model telemetry.</li>
 </ol>
 <hr />
 <h2 id="local-ai-skills-integration">🧠 Local AI Skills Integration<a class="headerlink" href="#local-ai-skills-integration" title="Permanent link">&para;</a></h2>
-<p>When writing or refactoring code in this repository, leverage our local skills:
+<p>When writing or refactoring code in this repository, leverage our local skills and engines:
 - <strong><code>local-coder</code></strong>: Unified multi-engine router across Ollama, Prism CUDA, and Foundry Local.
 - <strong><code>ollama-coder</code></strong>: Direct Ollama CLI (<code>qwen2.5-coder:14b</code>, <code>llama3.1:8b</code>).
 - <strong><code>foundry-coder</code></strong>: Direct Prism / Foundry Local connector.
-- Status check: <code>python3 ../05-local-coders/ask_coder.py status</code></p>
+- Status check: <code>dark-factory doctor</code></p>
 
 
 
