@@ -52,7 +52,7 @@ class LocalCoderHarness(AgentHarness):
         target_files: list[str] | None = None,
     ) -> HarnessResult:
         """Execute a coding task inside the sandbox using the local model."""
-        context_text = self._build_context(sandbox, target_files)
+        context_text = self._build_context(sandbox, task_prompt, target_files)
         system_prompt = (
             "You are an expert autonomous software engineer working in the Sovereign Dark Factory.\n"
             "Your changes will be verified by deterministic automated build and test gates.\n"
@@ -99,12 +99,24 @@ class LocalCoderHarness(AgentHarness):
             raw_response=response_text,
         )
 
-    def _build_context(self, sandbox: Sandbox, target_files: list[str] | None) -> str:
-        if not target_files:
+    def _build_context(self, sandbox: Sandbox, task_prompt: str, target_files: list[str] | None) -> str:
+        files_to_load = list(target_files or [])
+        if not files_to_load:
+            # Scan prompt for potential file paths that exist in sandbox
+            for candidate in re.findall(r"[\w/\.-]+\.[a-zA-Z0-9]+", task_prompt):
+                candidate_clean = candidate.strip("`'\",:;()[]")
+                try:
+                    sandbox.read_file(candidate_clean)
+                    if candidate_clean not in files_to_load:
+                        files_to_load.append(candidate_clean)
+                except Exception:
+                    pass
+
+        if not files_to_load:
             return "CONTEXT: Repository root.\n"
 
         context_parts = ["CONTEXT FILES:"]
-        for path in target_files:
+        for path in files_to_load:
             try:
                 content = sandbox.read_file(path).decode("utf-8", errors="replace")
                 context_parts.append(f"--- File: {path} ---\n{content}\n")
