@@ -1,4 +1,4 @@
-# Specification: Sovereign Dark Factory (`06-dark-factory`)
+# Specification: Sovereign Dark Factory (`local-dark-factory`)
 
 ## 1. System Architecture
 
@@ -11,7 +11,7 @@ sequenceDiagram
     participant CLI as dark-factory CLI
     participant Engine as Durable Engine (SQLite)
     participant Sandbox as GitWorktree Sandbox
-    participant Harness as LocalCoder Harness (05)
+    participant Harness as LocalCoder Harness
     participant Model as Local LLM (Ollama/Prism)
     participant Gate as Verification Runner
     participant Locker as Evidence Locker
@@ -68,6 +68,7 @@ class RunStatus(str, Enum):
     REJECTED = "REJECTED"
     FAILED = "FAILED"
     TIMED_OUT = "TIMED_OUT"
+    CANCELLED = "CANCELLED"
 
 @dataclass
 class VerificationStep:
@@ -75,7 +76,16 @@ class VerificationStep:
     argv: List[str]
     timeout_sec: int = 300
     mandatory: bool = True
-    description: str = ""
+    cwd: Optional[str] = None
+
+@dataclass
+class StepExecution:
+    step_id: str
+    exit_code: int
+    stdout: str
+    stderr: str
+    duration_sec: float
+    timed_out: bool = False
 
 @dataclass
 class TaskSpec:
@@ -85,48 +95,47 @@ class TaskSpec:
     agent: str = "local-coder"
     model: str = "qwen2.5-coder:14b"
     verification_steps: List[VerificationStep] = field(default_factory=list)
+    allow_no_verify: bool = False
+    protected_paths: List[str] = field(default_factory=list)
+    allow_gate_edits: bool = False
     max_healing_attempts: int = 3
     timeout_minutes: int = 30
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
-class StepExecution:
-    step_id: str
-    exit_code: int
-    stdout: str
-    stderr: str
-    duration_sec: float
-    passed: bool
+class ModelTelemetry:
+    engine: str
+    model_name: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    duration_sec: float = 0.0
+    tokens_per_sec: float = 0.0
+    cost_usd: float = 0.0
 
 @dataclass
 class EvidenceManifest:
     run_id: str
-    created_at: str
-    completed_at: str
     status: RunStatus
     repo_path: str
     base_rev: str
-    resulting_rev: Optional[str]
-    patch_path: str
-    patch_size_bytes: int
-    healing_attempts: int
-    verification_results: List[StepExecution]
-    model_telemetry: Dict[str, Any]
-    total_cost_usd: float = 0.0
+    created_at: str
+    completed_at: Optional[str] = None
+    resulting_rev: Optional[str] = None
+    patch_path: Optional[str] = None
+    patch_size_bytes: int = 0
+    patch_sha256: Optional[str] = None
+    healing_attempts: int = 0
+    verification_results: List[StepExecution] = field(default_factory=list)
+    model_telemetry: Optional[ModelTelemetry] = None
+    operator_notes: Optional[str] = None
 ```
 
 ---
 
-## 3. Component Specifications
+## 3. Subsystem Specifications
 
-### 3.1. Sandbox Layer (`dark_factory.sandbox`)
-
-- **Interface `Sandbox`**:
-  - `create(base_rev: str) -> None`: Prepares the sandbox.
-  - `execute(argv: List[str], env: Optional[Dict[str, str]] = None, timeout: int = 600) -> StepExecution`: Runs structured argv without shell interpolation risks.
-  - `write_file(rel_path: str, content: bytes) -> None`: Writes files into the sandbox.
-  - `read_file(rel_path: str) -> bytes`: Reads files out.
-  - `get_diff() -> str`: Runs `git diff HEAD` inside the sandbox to generate a clean patch.
-  - `destroy() -> None`: Cleans up the sandbox idempotently.
+### 3.1. Sandbox Fabric (`dark_factory.sandbox`)
 
 - **`GitWorktreeSandbox` (Default)**:
   - Uses `git worktree add --detach <sandbox_path> <base_rev>`.
@@ -142,17 +151,17 @@ class EvidenceManifest:
 ### 3.2. Local Agent Harness (`dark_factory.harness`)
 
 - **`LocalCoderHarness`**:
-  - Direct integration with `../05-local-coders`.
-  - Calls `local_coder.client.LocalCoderClient` or `ask_coder.py`.
+  - Unified local inference harness.
+  - Calls local LLM endpoints (Ollama `/api/generate` or Prism `/v1/chat/completions`).
   - Supports automatic engine fallbacks:
     - Primary: Ollama (`qwen2.5-coder:14b`).
     - Secondary: Prism CUDA (`http://127.0.0.1:5272/v1`).
     - Tertiary: Microsoft Foundry Local.
-  - Collects token generation counts, elapsed time, and tokens/sec telemetry based on `02-ollama-loadtest` patterns.
+  - Collects token generation counts, elapsed time, and tokens/sec telemetry.
 
 - **`OpenCodeHarness`**:
-  - Headless driver for `/home/senssei/.opencode/bin/opencode`.
-  - Configures OpenCode to use the local OpenAI-compatible endpoint.
+  - Headless driver for local autonomous coding agents.
+  - Configures agent runners to use local OpenAI-compatible endpoints.
 
 ---
 
@@ -199,11 +208,14 @@ Stored at `.factory/runs/<RUN_ID>/`:
 
 ---
 
-### 3.6. CLI & Operator Controls (`dark_factory.cli`)
+## 4. Operational Commands (CLI)
 
-- `dark-factory doctor`: Verifies Ollama, Prism, GPU VRAM, git binary.
-- `dark-factory run`: Submits a task.
-- `dark-factory status [RUN_ID] [--watch]`: Streams execution status.
-- `dark-factory describe RUN_ID`: Prints manifest, conditions, and diff.
-- `dark-factory review RUN_ID --approve [--branch <name>]`: Applies the patch to the target branch.
-- `dark-factory review RUN_ID --reject [--note <reason>]`: Rejects and archives the run.
+```bash
+dark-factory doctor
+dark-factory run --task "TASK"
+dark-factory list
+dark-factory describe <RUN_ID>
+dark-factory review <RUN_ID> --approve [--branch <NAME>]
+dark-factory review <RUN_ID> --reject [--note <REASON>]
+dark-factory recover
+```

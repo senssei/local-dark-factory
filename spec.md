@@ -1,4 +1,4 @@
-# Specification: Sovereign Dark Factory (`06-dark-factory`)
+# Specification: Sovereign Dark Factory (`local-dark-factory`)
 
 ## 1. System Architecture
 
@@ -11,7 +11,7 @@ sequenceDiagram
     participant CLI as dark-factory CLI
     participant Engine as Durable Engine (SQLite)
     participant Sandbox as GitWorktree Sandbox
-    participant Harness as LocalCoder Harness (05)
+    participant Harness as LocalCoder Harness
     participant Model as Local LLM (Ollama/Prism)
     participant Gate as Verification Runner
     participant Locker as Evidence Locker
@@ -142,17 +142,17 @@ class EvidenceManifest:
 ### 3.2. Local Agent Harness (`dark_factory.harness`)
 
 - **`LocalCoderHarness`**:
-  - Direct integration with `../05-local-coders`.
-  - Calls `local_coder.client.LocalCoderClient` or `ask_coder.py`.
+  - Unified local inference harness.
+  - Calls local LLM endpoints (Ollama `/api/generate` or Prism `/v1/chat/completions`).
   - Supports automatic engine fallbacks:
     - Primary: Ollama (`qwen2.5-coder:14b`).
     - Secondary: Prism CUDA (`http://127.0.0.1:5272/v1`).
     - Tertiary: Microsoft Foundry Local.
-  - Collects token generation counts, elapsed time, and tokens/sec telemetry based on `02-ollama-loadtest` patterns.
+  - Collects token generation counts, elapsed time, and tokens/sec telemetry.
 
 - **`OpenCodeHarness`**:
-  - Headless driver for `/home/senssei/.opencode/bin/opencode`.
-  - Configures OpenCode to use the local OpenAI-compatible endpoint.
+  - Headless driver for local autonomous coding agents.
+  - Configures agent runners to use local OpenAI-compatible endpoints.
 
 ---
 

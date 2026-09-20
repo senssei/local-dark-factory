@@ -1,4 +1,4 @@
-# Intent: Sovereign Dark Factory (`06-dark-factory`)
+# Intent: Sovereign Dark Factory (`local-dark-factory`)
 
 ## 1. Problem Statement
 
@@ -15,12 +15,12 @@ However, existing implementations suffer from critical systemic flaws that preve
 
 ## 2. Proposed Outcome & Vision
 
-We will build **Sovereign Dark Factory** (`dark-factory`): a lightweight, local-first, zero-cloud-token AI Software Factory tailored for developer workstations equipped with NVIDIA RTX GPUs and WSL2/Linux.
+We will build **Sovereign Dark Factory** (`local-dark-factory`): a lightweight, local-first, zero-cloud-token AI Software Factory tailored for developer workstations equipped with NVIDIA RTX GPUs and WSL2/Linux.
 
 The human operator transitions from a "boilerplate typist" to an **AI Factory Manager**. The factory operates autonomously around the clock:
 - Tasks are submitted via CLI, scheduled crons, or repository triggers.
 - Each task runs in a fast, disposable, isolated sandbox.
-- The agent harness executes code modifications using local models powered by our unified router (`05-local-coders`), Ollama (`02-ollama-loadtest`), and Prism CUDA (`03-foundy-local`).
+- The agent harness executes code modifications using local models powered by our unified router (`local-coder`), Ollama, and Prism CUDA.
 - Deterministic verification gates (`build.sh`, `test.sh`, `pytest`) independently judge success. Failing gates feed error traces back into an AST self-healing loop.
 - Verified changes, execution logs, model telemetry, and unified git diffs are preserved in a durable evidence locker.
 - The factory manager reviews the verified patch through a Human-in-the-Loop (HITL) gate (`dark-factory review <RUN_ID> --approve / --reject`).
@@ -53,8 +53,8 @@ The human operator transitions from a "boilerplate typist" to an **AI Factory Ma
 
 ## 5. Success Criteria
 
-- [ ] **Zero Cloud Cost**: Complete end-to-end task run with $0.00 spent on cloud APIs.
-- [ ] **Deterministic Gate Enforcement**: Agent declaring "I am done" does not cause a run to pass; only verification scripts exiting 0 pass.
-- [ ] **Automatic Self-Healing**: Compiler and test failures are fed back to the local model to iterate on fixes up to `N` retries.
-- [ ] **Durable Evidence**: Every run saves `diff.patch`, `manifest.json`, telemetry (tokens/sec, duration from `02-ollama-loadtest`), and full logs.
-- [ ] **HITL Review**: Operator can inspect and approve/reject patches with a single command.
+- [x] **Zero Cloud Cost**: Complete end-to-end task run with $0.00 spent on cloud APIs.
+- [x] **Deterministic Gate Enforcement**: Agent declaring "I am done" does not cause a run to pass; only verification scripts exiting 0 pass.
+- [x] **Automatic Self-Healing**: Compiler and test failures are fed back to the local model to iterate on fixes up to `N` retries.
+- [x] **Durable Evidence**: Every run saves `diff.patch`, `manifest.json`, telemetry (tokens/sec, duration), and full logs.
+- [x] **HITL Review**: Operator can inspect and approve/reject patches with a single command.

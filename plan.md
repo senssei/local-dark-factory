@@ -1,6 +1,6 @@
 # Implementation Plan: Sovereign Dark Factory (`plan.md`)
 
-This plan defines the step-by-step development phases for **`06-dark-factory`** according to the AI-Native SDLC Playbook.
+This plan defines the step-by-step development phases for **`local-dark-factory`** according to the AI-Native SDLC Playbook.
 
 ---
 
@@ -29,7 +29,7 @@ This plan defines the step-by-step development phases for **`06-dark-factory`** 
 
 ---
 
-## Phase 3: Local Agent Harness (`05-local-coders` Bridge)
+## Phase 3: Local Agent Harness (Multi-Engine Router)
 - [x] Implement `AgentHarness` base class in `dark_factory/harness/base.py`.
 - [x] Implement `LocalCoderHarness` in `dark_factory/harness/local_coder.py`:
   - Connect to local Ollama (`http://localhost:11434`) and Prism (`http://127.0.0.1:5272/v1`)

@@ -21,7 +21,7 @@ This project follows the **[AI-Native SDLC Playbook](https://claude.com/blog/the
 | [**`intent.md`**](intent.md) | The Planning Artifact: Problem statement, vision, constraints, and success criteria. | ✅ Established |
 | [**`spec.md`**](spec.md) | Technical Specification: Architecture, data contracts, and component interfaces. | ✅ Established |
 | [**`CLAUDE.md`**](CLAUDE.md) | Project Operating Manual: Build/test commands, non-negotiable rules, and architectural guidelines. | ✅ Established |
-| [**`AGENTS.md`**](AGENTS.md) | Agent Instructions: Guidelines for local inference skills (`05-local-coders`) and code standards. | ✅ Established |
+| [**`AGENTS.md`**](AGENTS.md) | Agent Instructions: Guidelines for local inference skills (`local-coder`) and code standards. | ✅ Established |
 | [**`plan.md`**](plan.md) | Implementation Roadmap: Phased execution plan from domain contracts to E2E CLI. | ✅ Established |
 | [**`REVIEW.md`**](REVIEW.md) | Governance & Review Policy: Human-in-the-loop (HITL) criteria and operator commands. | ✅ Established |
 
@@ -41,9 +41,9 @@ Durable SQLite Workflow Engine (.factory/factory.db)
 Disposable Git Worktree Sandbox (<100ms startup)
        │
        ▼
-Local Agent Harness (05-local-coders)
+Local Agent Harness (local-coder)
        ├── Ollama (:11434): qwen2.5-coder:14b / 7b
-       └── Prism CUDA (:5272): phi4-mini / ONNX GenAI (03-foundy-local)
+       └── Prism CUDA (:5272): phi4-mini / ONNX GenAI (Prism)
        │
        ▼
 Deterministic Verification Gates (test.sh / pytest / cargo / npm)

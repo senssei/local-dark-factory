@@ -14,7 +14,7 @@ This guide explains how to install `local-dark-factory`, verify your local hardw
   - Apple Silicon Mac (M-series with Metal)
 - **Local Inference Engine**:
   - [Ollama](https://ollama.com) running locally on port `11434` with a code model (e.g. `qwen2.5-coder:14b`), **AND/OR**
-  - [Prism](https://github.com/senssei/03-foundy-local) CUDA accelerator running on port `5272`.
+  - Prism CUDA accelerator running on port `5272`.
 
 ---
 
@@ -60,7 +60,7 @@ Example output:
 ✅ Ollama:                ONLINE (http://localhost:11434)
    Available models (3): qwen2.5-coder:14b, llama3.1:8b, mistral:7b
 ✅ Prism CUDA:            ONLINE (http://127.0.0.1:5272/v1)
-📁 Factory Journal:       /home/senssei/workspace/.factory
+📁 Factory Journal:       /path/to/project/.factory
 ==================================================
 All tasks execute 100% locally with zero cloud token cost.
 ```
