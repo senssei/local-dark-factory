@@ -32,6 +32,7 @@ ENV/
 .coverage
 htmlcov/
 .mypy_cache/
+site/
 
 # Dark Factory Runtime & Evidence
 .factory/
