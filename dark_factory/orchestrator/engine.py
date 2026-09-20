@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -37,11 +38,19 @@ class DurableEngine:
         self.locker = EvidenceLocker(self.storage_dir)
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _get_connection(self) -> Generator[sqlite3.Connection, None, None]:
         conn = sqlite3.connect(str(self.db_path))
         conn.execute("PRAGMA journal_mode=WAL;")
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         with self._get_connection() as conn:
@@ -73,19 +82,30 @@ class DurableEngine:
         run_id: str,
         new_status: RunStatus,
         payload: dict | None = None,
+        operator_notes: str | None = None,
     ) -> None:
         """Atomically transition run status and record audit event."""
         now = datetime.now(UTC).isoformat()
         payload_json = json.dumps(payload or {})
         with self._get_connection() as conn:
-            conn.execute(
-                """
-                UPDATE runs
-                SET status = ?, updated_at = ?
-                WHERE run_id = ?;
-                """,
-                (new_status.value, now, run_id),
-            )
+            if operator_notes is not None:
+                conn.execute(
+                    """
+                    UPDATE runs
+                    SET status = ?, updated_at = ?, operator_notes = ?
+                    WHERE run_id = ?;
+                    """,
+                    (new_status.value, now, operator_notes, run_id),
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE runs
+                    SET status = ?, updated_at = ?
+                    WHERE run_id = ?;
+                    """,
+                    (new_status.value, now, run_id),
+                )
             conn.execute(
                 """
                 INSERT INTO events (run_id, event_type, payload, created_at)
@@ -149,6 +169,7 @@ class DurableEngine:
                 sandbox=sandbox,
                 harness=harness,
                 spec=spec,
+                status_callback=update_state,
             )
 
             # 3. Assess Result & Preserve Evidence
@@ -205,25 +226,25 @@ class DurableEngine:
             manifest.status = RunStatus.APPROVED
             manifest.resulting_rev = resulting_rev
             manifest.operator_notes = note or "Approved by operator."
-            self.transition_status(run_id, RunStatus.APPROVED, {"resulting_rev": resulting_rev})
+            manifest.completed_at = now
+            self.transition_status(
+                run_id,
+                RunStatus.APPROVED,
+                payload={"resulting_rev": resulting_rev},
+                operator_notes=manifest.operator_notes,
+            )
         else:
             manifest.status = RunStatus.REJECTED
             manifest.operator_notes = note or "Rejected by operator."
-            self.transition_status(run_id, RunStatus.REJECTED, {"note": manifest.operator_notes})
-
-        manifest.completed_at = now
-        self.locker.save_run(manifest, patch_content=self.locker.load_patch(run_id))
-
-        with self._get_connection() as conn:
-            conn.execute(
-                """
-                UPDATE runs
-                SET status = ?, updated_at = ?, operator_notes = ?
-                WHERE run_id = ?;
-                """,
-                (manifest.status.value, now, manifest.operator_notes, run_id),
+            manifest.completed_at = now
+            self.transition_status(
+                run_id,
+                RunStatus.REJECTED,
+                payload={"note": manifest.operator_notes},
+                operator_notes=manifest.operator_notes,
             )
 
+        self.locker.save_run(manifest, patch_content=self.locker.load_patch(run_id))
         return manifest
 
     def list_runs(self) -> list[dict]:
@@ -239,26 +260,39 @@ class DurableEngine:
         return self.locker.load_manifest(run_id)
 
     def recover(self) -> list[str]:
-        """Recover orphaned runs and clean up dead sandboxes."""
+        """Recover orphaned runs, clean their sandboxes, and prune git worktrees."""
         recovered = []
+        affected_repos: set[str] = set()
+        sandboxes_dir = self.storage_dir / "sandboxes"
+
         with self._get_connection() as conn:
             rows = conn.execute(
                 """
-                SELECT run_id FROM runs
-                WHERE status NOT IN ('APPROVED', 'REJECTED', 'FAILED', 'TIMED_OUT', 'CANCELLED');
+                SELECT run_id, repo_path FROM runs
+                WHERE status NOT IN ('APPROVED', 'REJECTED', 'FAILED', 'TIMED_OUT', 'CANCELLED', 'AWAITING_REVIEW');
                 """
             ).fetchall()
             for row in rows:
                 rid = row["run_id"]
+                repo_path = row["repo_path"]
+                if repo_path:
+                    affected_repos.add(repo_path)
                 self.transition_status(rid, RunStatus.FAILED, {"reason": "Engine restart recovery"})
                 recovered.append(rid)
 
-        # Cleanup sandbox folder
-        sandboxes_dir = self.storage_dir / "sandboxes"
-        if sandboxes_dir.exists():
-            import shutil
+                # Prune dead sandbox folder for this run
+                run_sandbox = sandboxes_dir / rid
+                if run_sandbox.exists():
+                    import shutil
 
-            for child in sandboxes_dir.iterdir():
-                shutil.rmtree(child, ignore_errors=True)
+                    shutil.rmtree(run_sandbox, ignore_errors=True)
+
+        # Prune git worktree metadata in affected repos
+        for repo_str in affected_repos:
+            repo_p = Path(repo_str)
+            if repo_p.exists():
+                import subprocess
+
+                subprocess.run(["git", "worktree", "prune"], cwd=repo_p, check=False, capture_output=True)
 
         return recovered

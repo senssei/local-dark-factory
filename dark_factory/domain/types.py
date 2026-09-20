@@ -71,6 +71,7 @@ class TaskSpec:
     agent: str = "local-coder"
     model: str = "qwen2.5-coder:14b"
     verification_steps: list[VerificationStep] = field(default_factory=list)
+    allow_no_verify: bool = False
     max_healing_attempts: int = 3
     timeout_minutes: int = 30
     metadata: dict[str, Any] = field(default_factory=dict)

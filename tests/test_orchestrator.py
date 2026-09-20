@@ -134,31 +134,50 @@ def test_durable_engine_rejection_flow(mock_repo: Path, tmp_path: Path):
     assert rejected_manifest.operator_notes == "Rejected: use typed return annotations"
 
 
-def test_durable_engine_recovery(tmp_path: Path):
+def test_durable_engine_recovery(mock_repo: Path, tmp_path: Path):
     storage = tmp_path / ".factory"
     engine = DurableEngine(storage_dir=storage)
 
-    # Insert an incomplete run directly into SQLite
+    # Insert an incomplete run directly into SQLite AND an awaiting_review run
     with engine._get_connection() as conn:
         conn.execute(
             """
             INSERT INTO runs (run_id, repo_path, base_rev, status, created_at, updated_at)
-            VALUES ('run-crashed', '/tmp/repo', 'HEAD', 'AGENT_RUNNING', '2026-09-20T10:00:00Z', '2026-09-20T10:00:00Z');
+            VALUES ('run-crashed', ?, 'HEAD', 'AGENT_RUNNING', '2026-09-20T10:00:00Z', '2026-09-20T10:00:00Z');
+            """,
+            (str(mock_repo),),
+        )
+        conn.execute(
             """
+            INSERT INTO runs (run_id, repo_path, base_rev, status, created_at, updated_at)
+            VALUES ('run-awaiting', ?, 'HEAD', 'AWAITING_REVIEW', '2026-09-20T10:00:00Z', '2026-09-20T10:00:00Z');
+            """,
+            (str(mock_repo),),
         )
 
-    # Create dummy dead sandbox folder
+    # Create dummy dead sandbox folder for crashed run
     dead_sandbox = storage / "sandboxes" / "run-crashed"
     dead_sandbox.mkdir(parents=True)
     (dead_sandbox / "temp.txt").write_text("orphan")
 
+    # Create another folder in sandboxes that should NOT be touched
+    keep_sandbox = storage / "sandboxes" / "other-dir"
+    keep_sandbox.mkdir(parents=True)
+    (keep_sandbox / "keep.txt").write_text("stay")
+
     recovered = engine.recover()
     assert "run-crashed" in recovered
+    assert "run-awaiting" not in recovered
 
-    # Verify status changed to FAILED in DB
+    # Verify status changed to FAILED in DB for crashed run
     with engine._get_connection() as conn:
-        row = conn.execute("SELECT status FROM runs WHERE run_id = 'run-crashed';").fetchone()
-        assert row["status"] == "FAILED"
+        row_crashed = conn.execute("SELECT status FROM runs WHERE run_id = 'run-crashed';").fetchone()
+        assert row_crashed["status"] == "FAILED"
 
-    # Verify dead sandbox removed
+        # Verify AWAITING_REVIEW was preserved!
+        row_awaiting = conn.execute("SELECT status FROM runs WHERE run_id = 'run-awaiting';").fetchone()
+        assert row_awaiting["status"] == "AWAITING_REVIEW"
+
+    # Verify dead sandbox removed, but other directory preserved
     assert not dead_sandbox.exists()
+    assert keep_sandbox.exists()

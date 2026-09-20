@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -89,7 +90,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     steps: list[VerificationStep] = []
     if args.test_cmd:
         for idx, cmd_str in enumerate(args.test_cmd):
-            argv = cmd_str.split()
+            argv = shlex.split(cmd_str)
             steps.append(VerificationStep(id=f"gate-{idx + 1}", argv=argv))
     else:
         # Default fallback verification: check if repo has test.sh or pytest
@@ -98,6 +99,15 @@ def cmd_run(args: argparse.Namespace) -> int:
         elif (repo_path / "pytest.ini").exists() or (repo_path / "tests").exists():
             steps.append(VerificationStep(id="pytest", argv=[sys.executable, "-m", "pytest"]))
 
+    if not steps and not args.no_verify:
+        print(
+            "Error: No verification gates configured (no test.sh, tests/, or --test-cmd).\n"
+            "A dark factory run requires deterministic verification gates to prevent blind merges.\n"
+            "To bypass verification explicitly, pass --no-verify.",
+            file=sys.stderr,
+        )
+        return 1
+
     spec = TaskSpec(
         repo_path=str(repo_path),
         task_prompt=args.task,
@@ -105,6 +115,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         model=args.model,
         verification_steps=steps,
         max_healing_attempts=args.retries,
+        allow_no_verify=args.no_verify,
     )
 
     print("🚀 Sovereign Dark Factory submitting task...")
@@ -268,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--base-rev", default="HEAD", help="Base git commit revision (default: HEAD)")
     p_run.add_argument("--model", default="qwen2.5-coder:14b", help="Local model (default: qwen2.5-coder:14b)")
     p_run.add_argument("--test-cmd", action="append", help="Verification command (can be repeated)")
+    p_run.add_argument("--no-verify", action="store_true", help="Allow run without verification gates (DANGEROUS)")
     p_run.add_argument("--retries", type=int, default=3, help="Max self-healing retries (default: 3)")
     p_run.set_defaults(func=cmd_run)
 

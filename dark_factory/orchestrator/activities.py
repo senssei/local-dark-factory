@@ -7,6 +7,7 @@ either directly by the embedded SQLite engine or registered as Temporal Activiti
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from dark_factory.domain.errors import DarkFactoryError
 from dark_factory.domain.types import (
     EvidenceManifest,
     ModelTelemetry,
+    RunStatus,
     StepExecution,
     TaskSpec,
 )
@@ -44,9 +46,10 @@ def activity_execute_task_and_verify(
     sandbox: Sandbox,
     harness: AgentHarness,
     spec: TaskSpec,
+    status_callback: Callable[[RunStatus], None] | None = None,
 ) -> tuple[bool, int, list[StepExecution], ModelTelemetry | None]:
     """Execute code generation and deterministic verification with self-healing."""
-    runner = VerificationRunner(spec.verification_steps)
+    runner = VerificationRunner(spec.verification_steps, allow_no_verify=spec.allow_no_verify)
     healer = SelfHealingLoop(max_retries=spec.max_healing_attempts)
 
     passed, healing_attempts, executions, telemetry = healer.run_loop(
@@ -54,6 +57,7 @@ def activity_execute_task_and_verify(
         harness=harness,
         initial_prompt=spec.task_prompt,
         verification_runner=runner,
+        status_callback=status_callback,
     )
     return passed, healing_attempts, executions, telemetry
 

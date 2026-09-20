@@ -33,11 +33,30 @@ class VerificationOutcome:
 class VerificationRunner:
     """Executes structured verification steps sequentially inside a sandbox."""
 
-    def __init__(self, steps: list[VerificationStep]) -> None:
+    def __init__(self, steps: list[VerificationStep], allow_no_verify: bool = False) -> None:
         self.steps = steps
+        self.allow_no_verify = allow_no_verify
 
     def run(self, sandbox: Sandbox) -> VerificationOutcome:
         """Run all verification steps. Stops on the first failing mandatory step."""
+        if not self.steps:
+            if self.allow_no_verify:
+                return VerificationOutcome(passed=True, executions=[])
+            return VerificationOutcome(
+                passed=False,
+                executions=[],
+                failed_step=StepExecution(
+                    step_id="verification_gate_check",
+                    exit_code=1,
+                    stdout="",
+                    stderr=(
+                        "Zero verification gates configured. A dark factory run requires deterministic "
+                        "verification gates (or explicit --no-verify)."
+                    ),
+                    duration_sec=0.0,
+                ),
+            )
+
         executions = []
 
         for step in self.steps:
