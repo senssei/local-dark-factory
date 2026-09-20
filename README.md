@@ -1,6 +1,8 @@
-# Sovereign Dark Factory (`06-dark-factory`)
+# Sovereign Dark Factory (`local-dark-factory`)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-teal.svg)](https://senssei.github.io/local-dark-factory/)
+[![CI](https://github.com/senssei/local-dark-factory/actions/workflows/ci.yml/badge.svg)](https://github.com/senssei/local-dark-factory/actions/workflows/ci.yml)
 [![Zero Cloud Tokens](https://img.shields.io/badge/Cloud%20Tokens-%240.00-success.svg)](intent.md)
 [![Hardware](https://img.shields.io/badge/Hardware-NVIDIA%20RTX%205070-76b900.svg)](intent.md)
 
