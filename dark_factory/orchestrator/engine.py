@@ -191,10 +191,13 @@ class DurableEngine:
             return manifest
 
         except Exception as e:
-            update_state(RunStatus.FAILED, {"error": str(e)})
+            import traceback
+
+            tb = traceback.format_exc()
+            update_state(RunStatus.FAILED, {"error": str(e), "traceback": tb})
             manifest.status = RunStatus.FAILED
             manifest.operator_notes = f"Run encountered unhandled error: {e}"
-            self.locker.save_run(manifest, transcript=f"ERROR: {e}")
+            self.locker.save_run(manifest, transcript=f"ERROR: {e}\n\nTRACEBACK:\n{tb}")
             raise
         finally:
             if sandbox is not None:

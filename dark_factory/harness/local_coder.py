@@ -128,6 +128,7 @@ class LocalCoderHarness(AgentHarness):
         """Call Ollama native API or OpenAI-compatible endpoint."""
         start_time = time.monotonic()
 
+        ollama_err = ""
         # Try Ollama first
         try:
             payload = {
@@ -163,10 +164,15 @@ class LocalCoderHarness(AgentHarness):
                     cost_usd=0.0,
                 )
                 return data.get("response", ""), telemetry
-        except requests.RequestException:
-            pass
+            elif resp.status_code == 404:
+                ollama_err = f"Model '{self.model}' not found in Ollama (HTTP 404). Run 'ollama pull {self.model}'."
+            else:
+                ollama_err = f"Ollama HTTP {resp.status_code}: {resp.text}"
+        except requests.RequestException as e:
+            ollama_err = f"Ollama connection error: {e}"
 
         # Fallback to Prism / OpenAI-compatible endpoint
+        prism_err = ""
         try:
             headers = {"Content-Type": "application/json"}
             payload = {
@@ -204,11 +210,15 @@ class LocalCoderHarness(AgentHarness):
                     cost_usd=0.0,
                 )
                 return text, telemetry
-        except requests.RequestException:
-            pass
+            else:
+                prism_err = f"Prism HTTP {resp.status_code}: {resp.text}"
+        except requests.RequestException as e:
+            prism_err = f"Prism connection error: {e}"
 
         raise LocalEngineOfflineError(
-            f"No local inference engine available. Checked Ollama ({self.ollama_url}) and Prism ({self.prism_url})."
+            f"All local inference engines failed.\n"
+            f" - Ollama ({self.ollama_url}): {ollama_err or 'No response'}\n"
+            f" - Prism ({self.prism_url}): {prism_err or 'No response'}"
         )
 
     def _parse_file_blocks(self, text: str) -> list[tuple[str, str]]:
