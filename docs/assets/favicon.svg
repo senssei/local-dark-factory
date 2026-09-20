@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="100%" height="100%">
+  <defs>
+    <linearGradient id="favGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0d9488" />
+      <stop offset="50%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+  </defs>
+  <!-- Dark Background Hexagon -->
+  <polygon points="32,4 58,18 58,46 32,60 6,46 6,18"
+           fill="#0f172a"
+           stroke="url(#favGrad)"
+           stroke-width="3"
+           stroke-linejoin="round" />
+  <!-- Center Core -->
+  <circle cx="32" cy="32" r="10" fill="#020617" stroke="#38bdf8" stroke-width="2.5" />
+  <circle cx="32" cy="32" r="4" fill="#2dd4bf" />
+</svg>

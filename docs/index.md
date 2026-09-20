@@ -28,12 +28,27 @@ flowchart TD
     H -- Reject --> J[Archived with Operator Notes]
 ```
 
-1. **Zero Cloud Tokens**: Operates 100% locally on workstation hardware (NVIDIA RTX 5070 / Apple Silicon Metal). Never makes external cloud API calls ($0.00 token cost).
-2. **Sub-100ms Disposable Sandboxes**: Eliminates heavyweight Docker overhead by utilizing native `git worktree` isolation with directory sanitization.
-3. **Authoritative Verification Gates**: Verification is deterministic (compiler, linters, test suites). The LLM cannot vote on whether its own code works.
-4. **Gate Tamper Resistance**: Automatic baseline restoration prevents the model from weakening assertions, commenting out tests, or modifying test runners to fake a pass.
-5. **Durable SQLite Journaling**: State transitions, audit logs, and human operator notes survive system crashes and reboots.
-6. **Self-Healing Loop**: Feeds compiler diagnostics and test assertion failures back to the local model up to configurable retry limits.
+<div class="grid cards" markdown>
+
+- :octicons-shield-lock-24: **Zero Cloud Tokens**
+    Operates 100% locally on workstation hardware (NVIDIA RTX / Apple Silicon). Never makes external cloud API calls ($0.00 token cost).
+
+- :octicons-cpu-24: **Sub-100ms Disposable Sandboxes**
+    Eliminates heavyweight Docker overhead by utilizing native `git worktree` isolation with directory sanitization and strict path-traversal prevention.
+
+- :octicons-check-circle-24: **Authoritative Verification Gates**
+    Verification is deterministic (compiler, linters, test suites). The LLM cannot vote on whether its own code works.
+
+- :octicons-lock-24: **Gate Anti-Tamper Protection**
+    Automatic baseline restoration prevents the model from weakening assertions, commenting out tests, or modifying test runners to fake a pass.
+
+- :octicons-database-24: **Durable SQLite Journaling**
+    State transitions, audit logs, and human operator notes survive system crashes and reboots. Complete transactional state recovery.
+
+- :octicons-sync-24: **AST Self-Healing Loop**
+    Feeds compiler diagnostics and test assertion failures back to the local model up to configurable retry limits with cumulative telemetry.
+
+</div>
 
 ---
 

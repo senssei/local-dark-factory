@@ -1,57 +1,49 @@
 site_name: Local Dark Factory
 site_description: Sovereign, local-first autonomous AI Software Factory orchestrator (Zero Cloud Tokens)
-site_author: Sovereign Dark Factory Contributors
 site_url: https://senssei.github.io/local-dark-factory/
 repo_url: https://github.com/senssei/local-dark-factory
 repo_name: senssei/local-dark-factory
+edit_uri: edit/main/docs/
+strict: true
 
 theme:
   name: material
-  language: en
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
   palette:
-    - scheme: slate
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
       primary: teal
-      accent: cyan
-      toggle:
-        icon: material/weather-night
-        name: Switch to light mode
-    - scheme: default
+      toggle: { icon: material/weather-night, name: Switch to dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
       primary: teal
-      accent: cyan
-      toggle:
-        icon: material/weather-sunny
-        name: Switch to dark mode
+      toggle: { icon: material/weather-sunny, name: Switch to light mode }
   features:
-    - navigation.instant
-    - navigation.tracking
-    - navigation.tabs
     - navigation.sections
     - navigation.top
-    - search.suggest
-    - search.highlight
+    - navigation.footer
     - content.code.copy
     - content.action.edit
+    - search.highlight
 
 markdown_extensions:
   - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
   - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.snippets:
+      base_path: ["."]
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
-  - pymdownx.highlight:
-      anchor_linenums: true
-      line_spans: __span
-      pygments_lang_class: true
-  - pymdownx.inlinehilite
-  - pymdownx.snippets
-  - pymdownx.tabbed:
-      alternate_style: true
-  - tables
-  - attr_list
-  - toc:
-      permalink: true
 
 plugins:
   - search
@@ -65,12 +57,12 @@ plugins:
             show_category_heading: true
 
 nav:
-  - Overview: index.md
+  - Home: index.md
   - Getting Started: getting-started.md
   - Architecture: architecture.md
   - Local Inference: local-inference.md
   - Verification & Healing: verification-gates.md
-  - CLI Reference: cli.md
+  - CLI: cli.md
   - AI-Native SDLC:
       - Intent & Vision: sdlc/intent.md
       - Technical Spec: sdlc/spec.md
@@ -84,3 +76,4 @@ nav:
       - Inference Harness: api/harness.md
       - Verification & Healer: api/verification.md
       - Evidence Locker: api/storage.md
+  - Changelog: changelog.md

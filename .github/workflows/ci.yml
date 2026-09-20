@@ -2,9 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
-    branches: [main]
 
 jobs:
   test:
@@ -13,26 +11,35 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "pip"
-
-      - name: Install dependencies
+      - name: Install (editable, dev dependencies)
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          python -m pip install -e ".[dev]"
+      - name: Byte-compile
+        run: python -m compileall -q dark_factory tests
+      - name: Linting (ruff)
+        run: ruff check .
+      - name: Unit tests
+        run: python -m pytest tests/ -v
 
-      - name: Run lint (ruff)
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build wheel and smoke-test the installed CLI outside the checkout
         run: |
-          ruff check .
-
-      - name: Run tests (pytest)
-        run: |
-          pytest tests/ -v
+          python -m pip wheel . --no-deps -w "$RUNNER_TEMP/wheel"
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install "$RUNNER_TEMP"/wheel/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/venv/bin/dark-factory" --help
+          "$RUNNER_TEMP/venv/bin/dark-factory" doctor
+          "$RUNNER_TEMP/venv/bin/local-dark-factory" --help

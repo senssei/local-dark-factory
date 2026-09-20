@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="100%" height="100%">
+  <defs>
+    <!-- Ambient Glow filter -->
+    <filter id="dfGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <!-- Teal-to-Cyan Primary Gradient -->
+    <linearGradient id="dfPrimary" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0d9488" />
+      <stop offset="50%" stop-color="#06b6d4" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+
+    <!-- Deep Obsidian Shield Gradient -->
+    <linearGradient id="dfShield" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="50%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+
+    <!-- Laser Circuit Highlight -->
+    <linearGradient id="dfCircuit" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2dd4bf" stop-opacity="0.2" />
+      <stop offset="50%" stop-color="#38bdf8" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#2dd4bf" stop-opacity="0.2" />
+    </linearGradient>
+  </defs>
+
+  <!-- Ambient Backdrop Glow -->
+  <circle cx="128" cy="128" r="80" fill="#0d9488" opacity="0.12" filter="url(#dfGlow)" />
+
+  <!-- Outer Sovereign Hexagonal Shield -->
+  <polygon points="128,26 216,76 216,180 128,230 40,180 40,76"
+           fill="url(#dfShield)"
+           stroke="url(#dfPrimary)"
+           stroke-width="4"
+           stroke-linejoin="round" />
+
+  <!-- Inner Hexagon Frame -->
+  <polygon points="128,42 200,84 200,172 128,214 56,172 56,84"
+           fill="none"
+           stroke="#334155"
+           stroke-width="1.5"
+           stroke-dasharray="6,4" />
+
+  <!-- Dark Factory Assembly / Core Silhouette -->
+  <!-- Stylized Chimneys / Factory Roofline -->
+  <path d="M 80 160 L 80 125 L 98 138 L 98 120 L 116 133 L 116 110 L 138 110 L 138 160 Z"
+        fill="#0f172a"
+        stroke="#06b6d4"
+        stroke-width="2"
+        stroke-linejoin="round" />
+
+  <!-- Autonomous Gear Silhouette (Right Core) -->
+  <g transform="translate(155, 138)">
+    <circle cx="0" cy="0" r="26" fill="url(#dfShield)" stroke="url(#dfPrimary)" stroke-width="2.5" />
+    <circle cx="0" cy="0" r="10" fill="#020617" stroke="#38bdf8" stroke-width="2" />
+    <!-- Gear teeth -->
+    <rect x="-4" y="-32" width="8" height="8" fill="#38bdf8" rx="1" />
+    <rect x="-4" y="24" width="8" height="8" fill="#38bdf8" rx="1" />
+    <rect x="-32" y="-4" width="8" height="8" fill="#38bdf8" rx="1" />
+    <rect x="24" y="-4" width="8" height="8" fill="#38bdf8" rx="1" />
+    <rect x="-24" y="-24" width="8" height="8" fill="#06b6d4" rx="1" transform="rotate(45)" />
+    <rect x="16" y="-24" width="8" height="8" fill="#06b6d4" rx="1" transform="rotate(45)" />
+    <rect x="-24" y="16" width="8" height="8" fill="#06b6d4" rx="1" transform="rotate(45)" />
+    <rect x="16" y="16" width="8" height="8" fill="#06b6d4" rx="1" transform="rotate(45)" />
+  </g>
+
+  <!-- Circuit Trace Line (Base Gateway) -->
+  <path d="M 68 175 L 115 175 L 128 188 L 188 188"
+        fill="none"
+        stroke="url(#dfCircuit)"
+        stroke-width="3"
+        stroke-linecap="round" />
+
+  <circle cx="68" cy="175" r="3.5" fill="#38bdf8" />
+  <circle cx="188" cy="188" r="3.5" fill="#2dd4bf" />
+
+  <!-- Autonomous Pulse Spark -->
+  <circle cx="128" cy="74" r="4" fill="#38bdf8" filter="url(#dfGlow)" />
+</svg>
