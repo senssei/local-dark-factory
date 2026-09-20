@@ -90,3 +90,44 @@ This plan defines the step-by-step development phases for **`06-dark-factory`** 
 - [x] Create executable wrapper `bin/dark-factory`.
 - [x] Full end-to-end integration test (`tests/test_e2e.py`).
 - [x] Verification profiles in `profiles/default.toml` and `profiles/python.toml`.
+
+---
+
+## Phase 8: Hardening & Security Audit Remediation
+
+### 8.1 Critical Verification & State Safety (Priority 1)
+- [ ] **Reject Zero Verification Gates**: If no verification steps are detected or provided, abort run with an error unless an explicit `--no-verify` flag is set.
+- [ ] **Protect `AWAITING_REVIEW` in `recover()`**: Exclude `AWAITING_REVIEW` runs from being marked as `FAILED` during engine recovery; only target truly dead runs; run `git worktree prune`.
+- [ ] **Fix Self-Healing Prompt & Telemetry**:
+  - Preserve original `initial_prompt` alongside the error trace in repair iterations.
+  - Properly aggregate tokens and durations across all attempts instead of overwriting `last_telemetry`.
+  - Emit live status callbacks for `VERIFYING` and `SELF_HEALING`.
+  - Treat missing file blocks as a counted healing retry rather than immediate failure.
+
+### 8.2 Gate Tamper Resistance (Priority 2)
+- [ ] **Immutable Verification Gates**:
+  - Detect if the agent's patch modifies any gate scripts (e.g. `test.sh`, `tests/`) or checkout gate definitions from `base_rev` before running verification.
+  - Reject patches that tamper with verification gates.
+
+### 8.3 Safe Host Application in `review --approve` (Priority 3)
+- [ ] **Safe Patch Application**:
+  - Validate patch with `git apply --check` before creating branches.
+  - Store and verify SHA256 digest of `diff.patch` recorded at verification time.
+  - Stage only files explicitly modified by the patch (never indiscriminate `git add .` which might pick up untracked host files or `.factory/`).
+  - Graceful rollback if branch creation or commit fails.
+
+### 8.4 Execution & Environment Robustness
+- [ ] **Sanitize Process Environment**:
+  - Scrub factory's `VIRTUAL_ENV`, `PYTHONPATH`, and python-specific variables from child process environments so the target repo runs in its own environment.
+- [ ] **Robust CLI Parsing**:
+  - Use `shlex.split` for `--test-cmd` arguments to preserve quotes and flags.
+- [ ] **Engine Fallback Clarity**:
+  - Distinguish 404 (missing model) from connection errors in Ollama client before falling back to Prism.
+- [ ] **Timeout Enforcement**:
+  - Enforce `TaskSpec.timeout_minutes` at the orchestrator level and transition to `TIMED_OUT` when exceeded.
+- [ ] **Exception Preservation**:
+  - Save full traceback and evidence transcript when unhandled exceptions occur in `execute_run`.
+
+### 8.5 Code Hygiene
+- [ ] Ensure SQLite connection closing with `contextlib.closing` or explicit `conn.close()`.
+- [ ] Single atomic transaction for status transition + operator notes in `review_run`.
