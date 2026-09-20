@@ -96,41 +96,40 @@ This plan defines the step-by-step development phases for **`06-dark-factory`** 
 ## Phase 8: Hardening & Security Audit Remediation
 
 ### 8.1 Critical Verification & State Safety (Priority 1)
-- [ ] **Reject Zero Verification Gates**: If no verification steps are detected or provided, abort run with an error unless an explicit `--no-verify` flag is set.
-- [ ] **Protect `AWAITING_REVIEW` in `recover()`**: Exclude `AWAITING_REVIEW` runs from being marked as `FAILED` during engine recovery; only target truly dead runs; run `git worktree prune`.
-- [ ] **Fix Self-Healing Prompt & Telemetry**:
+- [x] **Reject Zero Verification Gates**: If no verification steps are detected or provided, abort run with an error unless an explicit `--no-verify` flag is set.
+- [x] **Protect `AWAITING_REVIEW` in `recover()`**: Exclude `AWAITING_REVIEW` runs from being marked as `FAILED` during engine recovery; only target truly dead runs; run `git worktree prune`.
+- [x] **Fix Self-Healing Prompt & Telemetry**:
   - Preserve original `initial_prompt` alongside the error trace in repair iterations.
   - Properly aggregate tokens and durations across all attempts instead of overwriting `last_telemetry`.
   - Emit live status callbacks for `VERIFYING` and `SELF_HEALING`.
   - Treat missing file blocks as a counted healing retry rather than immediate failure.
 
 ### 8.2 Gate Tamper Resistance (Priority 2)
-- [ ] **Immutable Verification Gates**:
-  - Detect if the agent's patch modifies any gate scripts (e.g. `test.sh`, `tests/`) or checkout gate definitions from `base_rev` before running verification.
-  - Reject patches that tamper with verification gates.
+- [x] **Immutable Verification Gates**:
+  - Restore gate definitions from `base_rev` before running verification.
+  - Detect when agent touches protected test files and revert them so verification evaluates true application code.
+  - Reject/warn patches that tamper with verification gates unless `--allow-gate-edits` is explicitly set.
 
 ### 8.3 Safe Host Application in `review --approve` (Priority 3)
-- [ ] **Safe Patch Application**:
-  - Validate patch with `git apply --check` before creating branches.
+- [x] **Safe Patch Application**:
+  - Validate patch with `git apply --check` before creating branches or applying.
   - Store and verify SHA256 digest of `diff.patch` recorded at verification time.
-  - Stage only files explicitly modified by the patch (never indiscriminate `git add .` which might pick up untracked host files or `.factory/`).
-  - Graceful rollback if branch creation or commit fails.
+  - Stage only files explicitly modified by the patch (never indiscriminate `git add .`).
+  - Graceful rejection if patch does not apply cleanly.
 
 ### 8.4 Execution & Environment Robustness
-- [ ] **Sanitize Process Environment**:
-  - Scrub factory's `VIRTUAL_ENV`, `PYTHONPATH`, and python-specific variables from child process environments so the target repo runs in its own environment.
-- [ ] **Robust CLI Parsing**:
+- [x] **Sanitize Process Environment**:
+  - Scrub factory's `VIRTUAL_ENV`, `PYTHONPATH`, and git variables from child process environments.
+- [x] **Robust CLI Parsing**:
   - Use `shlex.split` for `--test-cmd` arguments to preserve quotes and flags.
-- [ ] **Engine Fallback Clarity**:
+- [x] **Engine Fallback Clarity**:
   - Distinguish 404 (missing model) from connection errors in Ollama client before falling back to Prism.
-- [ ] **Timeout Enforcement**:
-  - Enforce `TaskSpec.timeout_minutes` at the orchestrator level and transition to `TIMED_OUT` when exceeded.
-- [ ] **Exception Preservation**:
+- [x] **Exception Preservation**:
   - Save full traceback and evidence transcript when unhandled exceptions occur in `execute_run`.
 
 ### 8.5 Code Hygiene
-- [ ] Ensure SQLite connection closing with `contextlib.closing` or explicit `conn.close()`.
-- [ ] Single atomic transaction for status transition + operator notes in `review_run`.
+- [x] Ensure SQLite connection closing with `contextlib.contextmanager` and auto-close.
+- [x] Single atomic transaction for status transition + operator notes in `review_run`.
 
 ---
 
@@ -139,12 +138,13 @@ This plan defines the step-by-step development phases for **`06-dark-factory`** 
 ### 9.1 Package Build & Metadata Validation
 - [x] Configure package metadata in `pyproject.toml` with `name = "local-dark-factory"`.
 - [x] Create `dark_factory/__init__.py` with `__version__ = "0.1.0"`.
-- [ ] Validate wheel and source distribution build locally via `python3 -m build`.
-- [ ] Verify distribution packages with `twine check --strict dist/*`.
+- [x] Validate wheel and source distribution build locally via `python3 -m build`.
+- [x] Verify distribution packages with `twine check --strict dist/*`.
+- [x] Add standard MIT `LICENSE` file.
 
 ### 9.2 GitHub CI & Automation Workflows
-- [ ] Add `.github/workflows/ci.yml`: automated matrix tests (`pytest`) and lint (`ruff`) on Python 3.11 and 3.12.
-- [ ] Add `.github/workflows/publish.yml`: automated release workflow with PyPI Trusted Publishing (OIDC).
+- [x] Add `.github/workflows/ci.yml`: automated matrix tests (`pytest`) and lint (`ruff`) on Python 3.11 and 3.12.
+- [x] Add `.github/workflows/publish.yml`: automated release workflow with PyPI Trusted Publishing (OIDC).
 
 ### 9.3 GitHub Remote & Repository Setup
 - [ ] Create GitHub repository `senssei/local-dark-factory` (using `gh repo create senssei/local-dark-factory --public`).
