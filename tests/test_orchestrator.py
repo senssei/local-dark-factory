@@ -1,0 +1,164 @@
+"""Unit tests for DurableEngine and state orchestration."""
+
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from dark_factory.domain.types import (
+    ModelTelemetry,
+    RunStatus,
+    TaskSpec,
+    VerificationStep,
+)
+from dark_factory.harness.base import AgentHarness, HarnessResult
+from dark_factory.orchestrator import DurableEngine
+from dark_factory.sandbox.base import Sandbox
+
+
+@pytest.fixture
+def mock_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Factory Operator"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "operator@factory.local"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=repo, check=True, capture_output=True)
+
+    (repo / "calc.py").write_text("def add(a, b):\n    return a - b\n")
+    (repo / "test_calc.py").write_text("from calc import add\n\ndef test_add():\n    assert add(2, 3) == 5\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "initial baseline"], cwd=repo, check=True, capture_output=True)
+    return repo
+
+
+class MockRepairHarness(AgentHarness):
+    """Harness that fixes the bug in calc.py."""
+
+    def execute_task(self, sandbox: Sandbox, task_prompt: str, target_files=None):
+        # Fix the bug
+        sandbox.write_file("calc.py", b"def add(a, b):\n    return a + b\n")
+        return HarnessResult(
+            success=True,
+            modified_files=["calc.py"],
+            telemetry=ModelTelemetry(
+                engine="ollama",
+                model_name="qwen2.5-coder:14b",
+                prompt_tokens=50,
+                completion_tokens=50,
+                total_tokens=100,
+                tokens_per_sec=45.0,
+            ),
+        )
+
+
+def test_durable_engine_e2e_approval_flow(mock_repo: Path, tmp_path: Path):
+    storage = tmp_path / ".factory"
+    engine = DurableEngine(storage_dir=storage)
+
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="Fix bug in add function in calc.py",
+        verification_steps=[
+            VerificationStep(id="pytest", argv=[sys.executable, "-m", "pytest", "test_calc.py"]),
+        ],
+    )
+
+    harness = MockRepairHarness()
+    statuses = []
+
+    # Execute Run
+    manifest = engine.execute_run(
+        spec=spec,
+        harness=harness,
+        run_id="run-e2e-001",
+        status_callback=lambda st: statuses.append(st),
+    )
+
+    assert manifest.run_id == "run-e2e-001"
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert manifest.patch_size_bytes > 0
+    assert len(manifest.verification_results) == 1
+    assert manifest.verification_results[0].passed
+    assert RunStatus.CREATING_SANDBOX in statuses
+    assert RunStatus.AGENT_RUNNING in statuses
+    assert RunStatus.AWAITING_REVIEW in statuses
+
+    # Operator Reviews and Approves
+    approved_manifest = engine.review_run(
+        run_id="run-e2e-001",
+        approve=True,
+        target_branch="feature/fixed-calc",
+        note="Approved by AI Factory Manager",
+    )
+
+    assert approved_manifest.status == RunStatus.APPROVED
+    assert approved_manifest.resulting_rev is not None
+
+    # Verify that mock_repo is now on feature/fixed-calc and test passes!
+    test_run = subprocess.run(
+        [sys.executable, "-m", "pytest", "test_calc.py"], cwd=mock_repo, capture_output=True, text=True
+    )
+    assert test_run.returncode == 0
+
+
+def test_durable_engine_rejection_flow(mock_repo: Path, tmp_path: Path):
+    storage = tmp_path / ".factory"
+    engine = DurableEngine(storage_dir=storage)
+
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="Fix bug",
+        verification_steps=[
+            VerificationStep(id="test", argv=[sys.executable, "-m", "pytest", "test_calc.py"]),
+        ],
+    )
+
+    harness = MockRepairHarness()
+    manifest = engine.execute_run(spec=spec, harness=harness, run_id="run-e2e-002")
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+
+    # Operator Rejects
+    rejected_manifest = engine.review_run(
+        run_id="run-e2e-002",
+        approve=False,
+        note="Rejected: use typed return annotations",
+    )
+    assert rejected_manifest.status == RunStatus.REJECTED
+    assert rejected_manifest.operator_notes == "Rejected: use typed return annotations"
+
+
+def test_durable_engine_recovery(tmp_path: Path):
+    storage = tmp_path / ".factory"
+    engine = DurableEngine(storage_dir=storage)
+
+    # Insert an incomplete run directly into SQLite
+    with engine._get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO runs (run_id, repo_path, base_rev, status, created_at, updated_at)
+            VALUES ('run-crashed', '/tmp/repo', 'HEAD', 'AGENT_RUNNING', '2026-09-20T10:00:00Z', '2026-09-20T10:00:00Z');
+            """
+        )
+
+    # Create dummy dead sandbox folder
+    dead_sandbox = storage / "sandboxes" / "run-crashed"
+    dead_sandbox.mkdir(parents=True)
+    (dead_sandbox / "temp.txt").write_text("orphan")
+
+    recovered = engine.recover()
+    assert "run-crashed" in recovered
+
+    # Verify status changed to FAILED in DB
+    with engine._get_connection() as conn:
+        row = conn.execute("SELECT status FROM runs WHERE run_id = 'run-crashed';").fetchone()
+        assert row["status"] == "FAILED"
+
+    # Verify dead sandbox removed
+    assert not dead_sandbox.exists()

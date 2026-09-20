@@ -1,0 +1,18 @@
+# Python verification profile
+
+[verification.python]
+name = "python"
+
+[[verification.python.steps]]
+id = "lint"
+argv = ["ruff", "check", "."]
+mandatory = true
+timeout = "5m"
+description = "Fast linting via Ruff"
+
+[[verification.python.steps]]
+id = "pytest"
+argv = ["pytest", "tests/", "-v"]
+mandatory = true
+timeout = "10m"
+description = "Unit tests via Pytest"

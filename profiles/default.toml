@@ -1,0 +1,18 @@
+# Default verification profile (expects build.sh and test.sh)
+
+[verification.default]
+name = "default"
+
+[[verification.default.steps]]
+id = "build"
+argv = ["./build.sh"]
+mandatory = true
+timeout = "10m"
+description = "Repository build script"
+
+[[verification.default.steps]]
+id = "test"
+argv = ["./test.sh"]
+mandatory = true
+timeout = "10m"
+description = "Repository test script"
