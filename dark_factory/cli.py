@@ -116,6 +116,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         verification_steps=steps,
         max_healing_attempts=args.retries,
         allow_no_verify=args.no_verify,
+        allow_gate_edits=args.allow_gate_edits,
     )
 
     print("🚀 Sovereign Dark Factory submitting task...")
@@ -280,6 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--model", default="qwen2.5-coder:14b", help="Local model (default: qwen2.5-coder:14b)")
     p_run.add_argument("--test-cmd", action="append", help="Verification command (can be repeated)")
     p_run.add_argument("--no-verify", action="store_true", help="Allow run without verification gates (DANGEROUS)")
+    p_run.add_argument("--allow-gate-edits", action="store_true", help="Permit agent to modify test files/gates")
     p_run.add_argument("--retries", type=int, default=3, help="Max self-healing retries (default: 3)")
     p_run.set_defaults(func=cmd_run)
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from dark_factory.domain.errors import DarkFactoryError, WorkflowStateError
 from dark_factory.domain.types import (
     ModelTelemetry,
     RunStatus,
@@ -14,6 +15,7 @@ from dark_factory.domain.types import (
 )
 from dark_factory.harness.base import AgentHarness, HarnessResult
 from dark_factory.orchestrator import DurableEngine
+from dark_factory.orchestrator.activities import activity_apply_patch, parse_patch_files
 from dark_factory.sandbox.base import Sandbox
 
 
@@ -181,3 +183,66 @@ def test_durable_engine_recovery(mock_repo: Path, tmp_path: Path):
     # Verify dead sandbox removed, but other directory preserved
     assert not dead_sandbox.exists()
     assert keep_sandbox.exists()
+
+
+def test_activity_parse_patch_files():
+    sample_diff = """diff --git a/calc.py b/calc.py
+--- a/calc.py
++++ b/calc.py
+@@ -1,2 +1,2 @@
+-def add(a, b): return a - b
++def add(a, b): return a + b
+diff --git a/src/utils/helper.py b/src/utils/helper.py
+--- /dev/null
++++ b/src/utils/helper.py
+@@ -0,0 +1 @@
++x = 1
+"""
+    files = parse_patch_files(sample_diff)
+    assert files == ["calc.py", "src/utils/helper.py"]
+
+
+def test_activity_apply_patch_corrupt_patch_fails_cleanly(mock_repo: Path):
+    corrupt_patch = """diff --git a/calc.py b/calc.py
+--- a/calc.py
++++ b/calc.py
+@@ -99,2 +99,2 @@
+-nonexistent line
++replacement
+"""
+    with pytest.raises(DarkFactoryError, match="Patch does not apply cleanly"):
+        activity_apply_patch(
+            repo_path=mock_repo,
+            patch_content=corrupt_patch,
+            target_branch="branch-corrupt",
+            commit_msg="attempt corrupt patch",
+        )
+
+    # Verify repository working directory was left clean!
+    status_res = subprocess.run(["git", "status", "--porcelain"], cwd=mock_repo, capture_output=True, text=True)
+    assert status_res.stdout.strip() == ""
+
+
+def test_review_run_sha256_mismatch(mock_repo: Path, tmp_path: Path):
+    storage = tmp_path / ".factory"
+    engine = DurableEngine(storage_dir=storage)
+
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="Fix bug",
+        verification_steps=[
+            VerificationStep(id="pytest", argv=[sys.executable, "-m", "pytest", "test_calc.py"]),
+        ],
+    )
+
+    manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-tampered")
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert manifest.patch_sha256 is not None
+
+    # Tamper with diff.patch on disk
+    patch_file = storage / "runs" / "run-tampered" / "diff.patch"
+    patch_file.write_text(patch_file.read_text() + "\n# EVIL TAMPERING\n")
+
+    # Attempt to approve tampered run
+    with pytest.raises(WorkflowStateError, match="Patch integrity check failed"):
+        engine.review_run(run_id="run-tampered", approve=True)

@@ -38,6 +38,13 @@ class Sandbox(ABC):
         """Extract a clean unified git diff of all modifications made in the sandbox."""
 
     @abstractmethod
+    def restore_paths(self, paths: list[str], rev: str | None = None) -> list[str]:
+        """Restore specified paths to their baseline state at the given revision.
+
+        Returns the list of paths that were actually modified and restored.
+        """
+
+    @abstractmethod
     def destroy(self) -> None:
         """Tear down and destroy the sandbox idempotently."""
 

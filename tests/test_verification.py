@@ -30,6 +30,9 @@ class FakeSandbox(Sandbox):
     def get_diff(self) -> str:
         return ""
 
+    def restore_paths(self, paths: list[str], rev: str | None = None) -> list[str]:
+        return []
+
     def destroy(self) -> None:
         pass
 
@@ -262,3 +265,36 @@ def test_self_healing_handles_harness_syntax_failure_as_retry():
     second_call_prompt = mock_harness.execute_task.call_args_list[1][1]["task_prompt"]
     assert "ORIGINAL TASK:\nCreate fixed.py" in second_call_prompt
     assert "Your previous response failed to apply: No valid file blocks found in model response." in second_call_prompt
+
+
+def test_verification_runner_restores_gates_before_run():
+    sandbox = FakeSandbox()
+    sandbox.exec_results = [
+        StepExecution("test", 0, "Pass", "", 0.5),
+    ]
+    sandbox.restore_paths = MagicMock(return_value=["test_calc.py"])
+
+    runner = VerificationRunner(
+        steps=[VerificationStep("test", ["pytest", "test_calc.py"])],
+        allow_gate_edits=False,
+    )
+    outcome = runner.run(sandbox)
+
+    assert outcome.passed
+    assert outcome.tampered_paths == ["test_calc.py"]
+    assert sandbox.restore_paths.called
+
+    # When allow_gate_edits is True, restore_paths should NOT be called
+    sandbox2 = FakeSandbox()
+    sandbox2.exec_results = [
+        StepExecution("test", 0, "Pass", "", 0.5),
+    ]
+    sandbox2.restore_paths = MagicMock()
+
+    runner_allowed = VerificationRunner(
+        steps=[VerificationStep("test", ["pytest", "test_calc.py"])],
+        allow_gate_edits=True,
+    )
+    outcome2 = runner_allowed.run(sandbox2)
+    assert outcome2.passed
+    assert not sandbox2.restore_paths.called

@@ -31,6 +31,9 @@ class MockSandbox(Sandbox):
     def get_diff(self) -> str:
         return ""
 
+    def restore_paths(self, paths: list[str], rev: str | None = None) -> list[str]:
+        return []
+
     def destroy(self) -> None:
         pass
 

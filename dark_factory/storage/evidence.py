@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict
 from pathlib import Path
@@ -38,6 +39,9 @@ class EvidenceLocker:
         patch_file.write_text(patch_content, encoding="utf-8")
         manifest.patch_path = str(patch_file)
         manifest.patch_size_bytes = len(patch_content.encode("utf-8"))
+        manifest.patch_sha256 = (
+            hashlib.sha256(patch_content.encode("utf-8")).hexdigest() if patch_content.strip() else None
+        )
 
         # Write transcript.log
         if transcript:
@@ -81,6 +85,7 @@ class EvidenceLocker:
             resulting_rev=data.get("resulting_rev"),
             patch_path=data.get("patch_path"),
             patch_size_bytes=data.get("patch_size_bytes", 0),
+            patch_sha256=data.get("patch_sha256"),
             healing_attempts=data.get("healing_attempts", 0),
             verification_results=verification_results,
             model_telemetry=telemetry,

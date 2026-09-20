@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import uuid
@@ -217,6 +218,14 @@ class DurableEngine:
 
         if approve:
             patch = self.locker.load_patch(run_id)
+            if manifest.patch_sha256:
+                actual_sha = hashlib.sha256(patch.encode("utf-8")).hexdigest()
+                if actual_sha != manifest.patch_sha256:
+                    raise WorkflowStateError(
+                        f"Patch integrity check failed for run '{run_id}'! "
+                        f"Expected SHA256 {manifest.patch_sha256}, got {actual_sha}."
+                    )
+
             resulting_rev = activity_apply_patch(
                 repo_path=manifest.repo_path,
                 patch_content=patch,

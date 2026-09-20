@@ -107,10 +107,19 @@ class SelfHealingLoop:
 
             # 4. Construct repair prompt with error trace AND original task retained
             error_trace = outcome.error_summary
+            tamper_notice = ""
+            if outcome.tampered_paths:
+                tamper_notice = (
+                    f"SECURITY NOTICE: Modifications to protected verification files "
+                    f"({', '.join(outcome.tampered_paths)}) were detected and REVERTED to baseline.\n"
+                    "You must NOT modify verification scripts or test files. Fix the application code instead!\n\n"
+                )
+
             current_prompt = (
                 f"ORIGINAL TASK:\n{initial_prompt}\n\n"
                 f"REPAIR ATTEMPT #{healing_attempts} OF {self.max_retries}:\n"
                 f"Your previous changes failed automated deterministic verification.\n"
+                f"{tamper_notice}"
                 f"{error_trace}\n\n"
                 "Please analyze the errors in the context of the original task and generate the corrected full file contents.\n"
                 "Remember to format all updated files in ```file:<path> ... ``` blocks."

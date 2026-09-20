@@ -49,7 +49,13 @@ def activity_execute_task_and_verify(
     status_callback: Callable[[RunStatus], None] | None = None,
 ) -> tuple[bool, int, list[StepExecution], ModelTelemetry | None]:
     """Execute code generation and deterministic verification with self-healing."""
-    runner = VerificationRunner(spec.verification_steps, allow_no_verify=spec.allow_no_verify)
+    runner = VerificationRunner(
+        steps=spec.verification_steps,
+        allow_no_verify=spec.allow_no_verify,
+        protected_paths=spec.protected_paths,
+        allow_gate_edits=spec.allow_gate_edits,
+        base_rev=spec.base_rev,
+    )
     healer = SelfHealingLoop(max_retries=spec.max_healing_attempts)
 
     passed, healing_attempts, executions, telemetry = healer.run_loop(
@@ -96,6 +102,20 @@ def activity_preserve_evidence(
     return diff
 
 
+def parse_patch_files(patch_content: str) -> list[str]:
+    """Extract list of target file paths from git unified diff."""
+    files = set()
+    for line in patch_content.splitlines():
+        if line.startswith("diff --git "):
+            parts = line.split()
+            if len(parts) >= 4:
+                b_path = parts[3]
+                if b_path.startswith("b/"):
+                    b_path = b_path[2:]
+                files.add(b_path)
+    return sorted(files)
+
+
 def activity_apply_patch(
     repo_path: str | Path,
     patch_content: str,
@@ -107,6 +127,17 @@ def activity_apply_patch(
     if not patch_content.strip():
         raise DarkFactoryError("Cannot apply empty patch.")
 
+    # 1. Pre-check patch applies cleanly before touching working tree or checking out branch
+    check_proc = subprocess.run(
+        ["git", "apply", "--check", "--whitespace=nowarn", "--exclude=*.pyc", "--exclude=__pycache__/*", "-"],
+        cwd=repo,
+        input=patch_content,
+        text=True,
+        capture_output=True,
+    )
+    if check_proc.returncode != 0:
+        raise DarkFactoryError(f"Patch does not apply cleanly to target repository: {check_proc.stderr}")
+
     # If target_branch requested, checkout new branch
     if target_branch:
         subprocess.run(
@@ -117,7 +148,7 @@ def activity_apply_patch(
             text=True,
         )
 
-    # Apply patch via git apply
+    # 2. Apply patch via git apply
     apply_proc = subprocess.run(
         ["git", "apply", "--whitespace=nowarn", "--exclude=*.pyc", "--exclude=__pycache__/*", "-"],
         cwd=repo,
@@ -128,9 +159,14 @@ def activity_apply_patch(
     if apply_proc.returncode != 0:
         raise DarkFactoryError(f"Failed to apply patch: {apply_proc.stderr}")
 
-    # Commit if commit_msg provided
+    # 3. Stage ONLY modified files from patch (never indiscriminate git add .)
     if commit_msg:
-        subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+        modified_files = parse_patch_files(patch_content)
+        if modified_files:
+            subprocess.run(["git", "add", "--"] + modified_files, cwd=repo, check=True, capture_output=True)
+        else:
+            subprocess.run(["git", "add", "-u"], cwd=repo, check=True, capture_output=True)
+
         subprocess.run(
             ["git", "commit", "--no-gpg-sign", "-m", commit_msg],
             cwd=repo,

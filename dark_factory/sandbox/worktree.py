@@ -93,8 +93,8 @@ class GitWorktreeSandbox(Sandbox):
 
         # Build clean environment
         exec_env = os.environ.copy()
-        # Strip git env vars that might leak from parent
-        for key in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"]:
+        # Strip git and python env vars that might leak from parent/outer runtime
+        for key in ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "VIRTUAL_ENV", "PYTHONPATH"]:
             exec_env.pop(key, None)
         if env:
             exec_env.update(env)
@@ -200,6 +200,57 @@ class GitWorktreeSandbox(Sandbox):
             text=True,
         )
         return diff_res.stdout
+
+    def restore_paths(self, paths: list[str], rev: str | None = None) -> list[str]:
+        """Restore specified paths to their baseline state at the given revision.
+
+        Returns the list of paths that were actually modified and restored.
+        """
+        if not self._created:
+            raise SandboxError("Sandbox has not been created yet.")
+        if not paths:
+            return []
+
+        target_rev = rev or self._base_sha or "HEAD"
+        restored: list[str] = []
+
+        for p in paths:
+            rel = p.lstrip("/")
+            # 1. Check if git reports modifications, deletions, or staged changes for path
+            diff_res = subprocess.run(
+                ["git", "diff", target_rev, "--name-only", "--", rel],
+                cwd=self.sandbox_dir,
+                capture_output=True,
+                text=True,
+            )
+            # 2. Check for untracked new files under path
+            untracked_res = subprocess.run(
+                ["git", "ls-files", "--others", "--exclude-standard", "--", rel],
+                cwd=self.sandbox_dir,
+                capture_output=True,
+                text=True,
+            )
+            has_diff = bool(diff_res.stdout.strip())
+            has_untracked = bool(untracked_res.stdout.strip())
+
+            if has_diff or has_untracked:
+                # Restore tracked files to target_rev
+                subprocess.run(
+                    ["git", "checkout", target_rev, "--", rel],
+                    cwd=self.sandbox_dir,
+                    capture_output=True,
+                    text=True,
+                )
+                # Clean untracked files
+                subprocess.run(
+                    ["git", "clean", "-fd", "--", rel],
+                    cwd=self.sandbox_dir,
+                    capture_output=True,
+                    text=True,
+                )
+                restored.append(rel)
+
+        return restored
 
     def destroy(self) -> None:
         """Destroy the worktree and clean up files idempotently."""

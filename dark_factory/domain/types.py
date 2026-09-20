@@ -72,6 +72,8 @@ class TaskSpec:
     model: str = "qwen2.5-coder:14b"
     verification_steps: list[VerificationStep] = field(default_factory=list)
     allow_no_verify: bool = False
+    protected_paths: list[str] = field(default_factory=list)
+    allow_gate_edits: bool = False
     max_healing_attempts: int = 3
     timeout_minutes: int = 30
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -104,6 +106,7 @@ class EvidenceManifest:
     resulting_rev: str | None = None
     patch_path: str | None = None
     patch_size_bytes: int = 0
+    patch_sha256: str | None = None
     healing_attempts: int = 0
     verification_results: list[StepExecution] = field(default_factory=list)
     model_telemetry: ModelTelemetry | None = None

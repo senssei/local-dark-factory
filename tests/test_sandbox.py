@@ -113,3 +113,35 @@ def test_worktree_invalid_repo(tmp_path: Path):
     )
     with pytest.raises(WorktreeCreationError):
         sandbox.create()
+
+
+def test_worktree_restore_paths(temp_git_repo: Path, tmp_path: Path):
+    sandbox = GitWorktreeSandbox(
+        repo_path=temp_git_repo,
+        sandbox_id="run-test-restore",
+        base_dir=tmp_path / "sandboxes",
+    )
+    sandbox.create()
+
+    try:
+        # 1. Modify an existing tracked file hello.py
+        sandbox.write_file("hello.py", b"print('tampered')\n")
+        # 2. Add an untracked file inside tests/
+        sandbox.write_file("tests/fake_test.py", b"assert True\n")
+
+        # Restore hello.py and tests
+        restored = sandbox.restore_paths(["hello.py", "tests"])
+        assert "hello.py" in restored
+        assert "tests" in restored
+
+        # Check that hello.py is restored to original
+        assert sandbox.read_file("hello.py") == b"print('hello baseline')\n"
+
+        # Check that untracked tests/fake_test.py was removed
+        assert not (sandbox.path / "tests" / "fake_test.py").exists()
+
+        # If we run restore again when nothing is tampered, it should return empty list
+        restored_again = sandbox.restore_paths(["hello.py", "tests"])
+        assert restored_again == []
+    finally:
+        sandbox.destroy()
