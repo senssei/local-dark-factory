@@ -27,6 +27,13 @@ dark-factory run --help
 
 ---
 
+## 🔁 Development Process (AI-Native SDLC)
+
+See `AGENTS.md` for the process table (intent → spec → plan → test → code → review) and process rules; this file does not
+duplicate them so there is one source of truth.
+
+---
+
 ## 🏛 Architecture & Component Layout
 
 ```text

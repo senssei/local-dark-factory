@@ -75,8 +75,21 @@ class TaskSpec:
     protected_paths: list[str] = field(default_factory=list)
     allow_gate_edits: bool = False
     max_healing_attempts: int = 3
-    timeout_minutes: int = 30
+    timeout_minutes: float = 30
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class PhaseTiming:
+    """Wall-clock duration of one named phase of a run, for lightweight local performance tracing.
+
+    No external tracing backend: these are recorded straight onto `EvidenceManifest.phase_timings`
+    alongside the rest of the evidence (consistent with Zero Cloud Tokens / local-first).
+    """
+
+    phase: str
+    duration_sec: float
+    started_at: str
 
 
 @dataclass
@@ -111,6 +124,8 @@ class EvidenceManifest:
     verification_results: list[StepExecution] = field(default_factory=list)
     model_telemetry: ModelTelemetry | None = None
     operator_notes: str | None = None
+    phase_timings: list[PhaseTiming] = field(default_factory=list)
+    repeated_failure_streak: int = 0
 
     @classmethod
     def create(

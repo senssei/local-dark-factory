@@ -14,6 +14,8 @@ import requests
 
 from dark_factory.domain.errors import RunNotFoundError
 from dark_factory.domain.types import RunStatus, TaskSpec, VerificationStep
+from dark_factory.eval.runner import format_summary, run_eval, save_report
+from dark_factory.eval.scenarios import SCENARIOS
 from dark_factory.harness.local_coder import LocalCoderHarness
 from dark_factory.orchestrator.engine import DurableEngine
 
@@ -117,6 +119,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         max_healing_attempts=args.retries,
         allow_no_verify=args.no_verify,
         allow_gate_edits=args.allow_gate_edits,
+        timeout_minutes=args.timeout_minutes,
     )
 
     print("🚀 Sovereign Dark Factory submitting task...")
@@ -127,8 +130,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     print(f"   Prompt:       {spec.task_prompt}")
     print("-" * 50)
 
-    engine = DurableEngine()
-    harness = LocalCoderHarness(model=spec.model)
+    engine = DurableEngine(storage_dir=args.storage_dir)
+    harness = LocalCoderHarness(model=spec.model, ollama_url=args.ollama_url, prism_url=args.prism_url)
 
     def on_status_change(st: RunStatus):
         print(f"   ➜ Transition: {st.value}")
@@ -168,7 +171,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_list(args: argparse.Namespace) -> int:
     """List runs recorded in the factory journal."""
-    engine = DurableEngine()
+    engine = DurableEngine(storage_dir=args.storage_dir)
     runs = engine.list_runs()
 
     if not runs:
@@ -184,7 +187,7 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 def cmd_describe(args: argparse.Namespace) -> int:
     """Describe a run and display its diff and evidence."""
-    engine = DurableEngine()
+    engine = DurableEngine(storage_dir=args.storage_dir)
     try:
         manifest = engine.get_run(args.run_id)
         patch = engine.locker.load_patch(args.run_id)
@@ -199,6 +202,8 @@ def cmd_describe(args: argparse.Namespace) -> int:
     print(f"Created At:      {manifest.created_at}")
     print(f"Completed At:    {manifest.completed_at or 'In Progress'}")
     print(f"Healing Retries: {manifest.healing_attempts}")
+    if manifest.repeated_failure_streak:
+        print(f"Stuck Detector:  repeated the same failure {manifest.repeated_failure_streak + 1} time(s)")
     if manifest.operator_notes:
         print(f"Operator Notes:  {manifest.operator_notes}")
 
@@ -216,6 +221,13 @@ def cmd_describe(args: argparse.Namespace) -> int:
     else:
         print("No verification gates recorded.")
 
+    print("\n--- PHASE TIMINGS ---")
+    if manifest.phase_timings:
+        for pt in manifest.phase_timings:
+            print(f"[{pt.phase}] {pt.duration_sec:.2f}s (started {pt.started_at})")
+    else:
+        print("No phase timings recorded.")
+
     print("\n--- UNIFIED DIFF ---")
     if patch.strip():
         print(patch)
@@ -227,7 +239,7 @@ def cmd_describe(args: argparse.Namespace) -> int:
 
 def cmd_review(args: argparse.Namespace) -> int:
     """Approve or reject a run."""
-    engine = DurableEngine()
+    engine = DurableEngine(storage_dir=args.storage_dir)
     if not args.approve and not args.reject:
         print("Error: Specify either --approve or --reject", file=sys.stderr)
         return 1
@@ -254,12 +266,80 @@ def cmd_review(args: argparse.Namespace) -> int:
 
 def cmd_recover(args: argparse.Namespace) -> int:
     """Recover orphaned runs and clean up dead sandboxes."""
-    engine = DurableEngine()
+    engine = DurableEngine(storage_dir=args.storage_dir)
     recovered = engine.recover()
     print(f"Recovered {len(recovered)} run(s) and pruned orphaned sandboxes.")
     for rid in recovered:
         print(f" - {rid}")
     return 0
+
+
+def cmd_dashboard(args: argparse.Namespace) -> int:
+    """Launch the local, read-only web dashboard (binds 127.0.0.1 only)."""
+    from dark_factory.dashboard import run_dashboard
+
+    try:
+        run_dashboard(storage_dir=Path(args.storage_dir), port=args.port, open_browser=not args.no_browser)
+    except OSError as e:
+        print(f"Error: could not start dashboard on 127.0.0.1:{args.port}: {e}", file=sys.stderr)
+        return 1
+    print("Dashboard stopped.")
+    return 0
+
+
+def cmd_eval(args: argparse.Namespace) -> int:
+    """Run the repeatable real-model benchmark suite against one or more named scenarios."""
+    if args.list:
+        print("Available eval scenarios:")
+        for name, scenario in sorted(SCENARIOS.items()):
+            print(f"  {name:<12} {scenario.description}")
+        return 0
+
+    names = args.scenario or sorted(SCENARIOS)
+    unknown = [n for n in names if n not in SCENARIOS]
+    if unknown:
+        print(
+            f"Error: unknown scenario(s): {', '.join(unknown)}. Available: {', '.join(sorted(SCENARIOS))}",
+            file=sys.stderr,
+        )
+        return 1
+
+    health = LocalCoderHarness(model=args.model, ollama_url=args.ollama_url, prism_url=args.prism_url).check_health()
+    if not health["ollama"] and not health["prism"]:
+        print(
+            "Error: no local inference engine reachable (checked Ollama and Prism). Run 'dark-factory doctor' "
+            "to diagnose.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"🧪 Running eval: {', '.join(names)} (x{args.repeat}) against {args.model}")
+
+    def on_status(msg: str) -> None:
+        print(f"   {msg}")
+
+    report = run_eval(
+        names,
+        harness_factory=lambda: LocalCoderHarness(
+            model=args.model, ollama_url=args.ollama_url, prism_url=args.prism_url
+        ),
+        model=args.model,
+        ollama_url=args.ollama_url,
+        prism_url=args.prism_url,
+        storage_dir=Path(args.storage_dir),
+        repeat=args.repeat,
+        keep_repos=args.keep_repos,
+        status_callback=on_status,
+    )
+
+    path = save_report(report, Path(args.storage_dir))
+    print()
+    print(format_summary(report))
+    print(f"\nSaved report: {path}")
+
+    summary = report.scenario_summary()
+    all_converged_at_least_once = all(s["converged"] > 0 for s in summary.values())
+    return 0 if all_converged_at_least_once else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -283,15 +363,31 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--no-verify", action="store_true", help="Allow run without verification gates (DANGEROUS)")
     p_run.add_argument("--allow-gate-edits", action="store_true", help="Permit agent to modify test files/gates")
     p_run.add_argument("--retries", type=int, default=3, help="Max self-healing retries (default: 3)")
+    p_run.add_argument("--timeout-minutes", type=float, default=30, help="Run deadline in minutes (default: 30)")
+    p_run.add_argument(
+        "--storage-dir", default=".factory", help="Directory for the factory journal (default: .factory)"
+    )
+    p_run.add_argument(
+        "--ollama-url", default="http://localhost:11434", help="Ollama endpoint (default: http://localhost:11434)"
+    )
+    p_run.add_argument(
+        "--prism-url", default="http://127.0.0.1:5272/v1", help="Prism endpoint (default: http://127.0.0.1:5272/v1)"
+    )
     p_run.set_defaults(func=cmd_run)
 
     # list
     p_list = subparsers.add_parser("list", help="List runs recorded in journal")
+    p_list.add_argument(
+        "--storage-dir", default=".factory", help="Directory for the factory journal (default: .factory)"
+    )
     p_list.set_defaults(func=cmd_list)
 
     # describe
     p_desc = subparsers.add_parser("describe", help="Inspect run manifest, diff, and evidence")
     p_desc.add_argument("run_id", help="Run identifier")
+    p_desc.add_argument(
+        "--storage-dir", default=".factory", help="Directory for the factory journal (default: .factory)"
+    )
     p_desc.set_defaults(func=cmd_describe)
 
     # review
@@ -301,11 +397,44 @@ def main(argv: list[str] | None = None) -> int:
     p_review.add_argument("--reject", action="store_true", help="Reject patch")
     p_review.add_argument("--branch", help="Target branch to checkout before applying patch")
     p_review.add_argument("--note", help="Operator feedback or review note")
+    p_review.add_argument(
+        "--storage-dir", default=".factory", help="Directory for the factory journal (default: .factory)"
+    )
     p_review.set_defaults(func=cmd_review)
 
     # recover
     p_recover = subparsers.add_parser("recover", help="Recover interrupted runs and clean dead sandboxes")
+    p_recover.add_argument(
+        "--storage-dir", default=".factory", help="Directory for the factory journal (default: .factory)"
+    )
     p_recover.set_defaults(func=cmd_recover)
+
+    # eval
+    p_eval = subparsers.add_parser("eval", help="Run the real-model benchmark suite against named scenarios")
+    p_eval.add_argument("--scenario", action="append", help="Scenario name to run (repeatable; default: all)")
+    p_eval.add_argument("--repeat", type=int, default=1, help="Repeats per scenario (default: 1)")
+    p_eval.add_argument("--model", default="qwen2.5-coder:14b", help="Local model (default: qwen2.5-coder:14b)")
+    p_eval.add_argument(
+        "--ollama-url", default="http://localhost:11434", help="Ollama endpoint (default: http://localhost:11434)"
+    )
+    p_eval.add_argument(
+        "--prism-url", default="http://127.0.0.1:5272/v1", help="Prism endpoint (default: http://127.0.0.1:5272/v1)"
+    )
+    p_eval.add_argument(
+        "--storage-dir", default=".factory", help="Directory for the factory journal (default: .factory)"
+    )
+    p_eval.add_argument("--keep-repos", action="store_true", help="Keep scaffolded scenario repos for inspection")
+    p_eval.add_argument("--list", action="store_true", help="List available scenarios and exit")
+    p_eval.set_defaults(func=cmd_eval)
+
+    # dashboard
+    p_dash = subparsers.add_parser("dashboard", help="Launch a local, read-only web dashboard (127.0.0.1 only)")
+    p_dash.add_argument("--port", type=int, default=8420, help="Port to listen on (default: 8420)")
+    p_dash.add_argument(
+        "--storage-dir", default=".factory", help="Directory for the factory journal (default: .factory)"
+    )
+    p_dash.add_argument("--no-browser", action="store_true", help="Do not auto-open a browser tab")
+    p_dash.set_defaults(func=cmd_dashboard)
 
     parsed = parser.parse_args(argv)
     return parsed.func(parsed)

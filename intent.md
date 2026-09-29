@@ -58,3 +58,5 @@ The human operator transitions from a "boilerplate typist" to an **AI Factory Ma
 - [x] **Automatic Self-Healing**: Compiler and test failures are fed back to the local model to iterate on fixes up to `N` retries.
 - [x] **Durable Evidence**: Every run saves `diff.patch`, `manifest.json`, telemetry (tokens/sec, duration), and full logs.
 - [x] **HITL Review**: Operator can inspect and approve/reject patches with a single command.
+- [ ] **Repeatable Model Eval**: Operator can run a standardized suite of real-model tasks (`dark-factory eval`) and get a structured, comparable report of self-healing convergence — without hand-rolling a throwaway script each time.
+- [ ] **Local Observability**: Operator can browse run history, evidence, and eval reports in a local, read-only dashboard (`dark-factory dashboard`) — no write actions from the UI, no dependency beyond the Python standard library, bound to `127.0.0.1` only.

@@ -104,3 +104,47 @@ def test_offline_engine_raises():
 
     with pytest.raises(LocalEngineOfflineError):
         harness.execute_task(sandbox, "do something")
+
+
+def test_parse_file_blocks_keeps_inner_code_fences():
+    """A README containing its own fenced blocks must not be truncated at the first inner fence."""
+    harness = LocalCoderHarness()
+    response = (
+        "```file:README.md\n"
+        "# Title\n"
+        "\n"
+        "```python\n"
+        "print(1)\n"
+        "```\n"
+        "\n"
+        "Trailing paragraph.\n"
+        "```\n"
+        "\n"
+        "```file:calc.py\n"
+        "x = 1\n"
+        "```\n"
+    )
+    blocks = harness._parse_file_blocks(response)
+    assert [p for p, _ in blocks] == ["README.md", "calc.py"]
+    readme = dict(blocks)["README.md"]
+    assert readme == "# Title\n\n```python\nprint(1)\n```\n\nTrailing paragraph.\n"
+    assert dict(blocks)["calc.py"] == "x = 1\n"
+
+
+def test_parse_file_blocks_longer_outer_fence():
+    harness = LocalCoderHarness()
+    response = "````file:doc.md\ntext\n```\nnot a terminator\n```\n````\n"
+    assert harness._parse_file_blocks(response) == [("doc.md", "text\n```\nnot a terminator\n```\n")]
+
+
+def test_parse_file_blocks_drops_unterminated_block():
+    """A truncated model response must never produce a half-written file."""
+    harness = LocalCoderHarness()
+    response = "```file:ok.py\nx = 1\n```\n```file:cut.py\ndef f():\n    retur"
+    assert harness._parse_file_blocks(response) == [("ok.py", "x = 1\n")]
+
+
+def test_parse_file_blocks_handles_crlf():
+    harness = LocalCoderHarness()
+    blocks = harness._parse_file_blocks("```file:a.py\r\nx = 1\r\n```\r\n")
+    assert blocks == [("a.py", "x = 1\r\n")]

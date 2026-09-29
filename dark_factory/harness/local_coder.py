@@ -12,6 +12,9 @@ from dark_factory.domain.types import ModelTelemetry
 from dark_factory.harness.base import AgentHarness, HarnessResult
 from dark_factory.sandbox.base import Sandbox
 
+_FILE_OPEN_RE = re.compile(r"^(`{3,})file:(.*)$")
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,})(.*)$")
+
 
 class LocalCoderHarness(AgentHarness):
     """Harness that leverages local LLM engines (Ollama, Prism CUDA, Foundry)."""
@@ -222,13 +225,43 @@ class LocalCoderHarness(AgentHarness):
         )
 
     def _parse_file_blocks(self, text: str) -> list[tuple[str, str]]:
-        """Parse ```file:path/to/file blocks from model response."""
-        pattern = re.compile(r"```file:([^\n\r]+)[\r\n]([\s\S]*?)```")
-        matches = pattern.findall(text)
-        result = []
-        for path_str, content in matches:
-            clean_path = path_str.strip()
-            result.append((clean_path, content))
+        """Parse ```file:path/to/file blocks from model response.
+
+        The scan is line-based so file contents may contain their own markdown fences: a fence with an
+        info string (```python) opens a nested block, a bare fence closes it, and only a bare fence at
+        nesting depth 0 (and at least as long as the opening one) terminates the file block. A block that
+        is never terminated (truncated response) is discarded rather than written half-complete.
+        """
+        result: list[tuple[str, str]] = []
+        current_path: str | None = None
+        outer_len = 0
+        depth = 0
+        buffer: list[str] = []
+
+        for line in text.splitlines(keepends=True):
+            stripped = line.rstrip("\r\n")
+            if current_path is None:
+                opener = _FILE_OPEN_RE.match(stripped)
+                if opener and opener.group(2).strip():
+                    current_path = opener.group(2).strip()
+                    outer_len = len(opener.group(1))
+                    depth = 0
+                    buffer = []
+                continue
+
+            fence = _FENCE_RE.match(stripped)
+            if fence:
+                fence_len, info = len(fence.group(1)), fence.group(2).strip()
+                if info:
+                    depth += 1
+                elif depth > 0:
+                    depth -= 1
+                elif fence_len >= outer_len:
+                    result.append((current_path, "".join(buffer)))
+                    current_path = None
+                    continue
+            buffer.append(line)
+
         return result
 
     def _extract_generic_code_block(self, text: str) -> str | None:

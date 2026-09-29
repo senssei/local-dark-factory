@@ -5,14 +5,23 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import threading
+import time
 import uuid
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
-from dark_factory.domain.errors import WorkflowStateError
-from dark_factory.domain.types import EvidenceManifest, RunStatus, TaskSpec
+from dark_factory.domain.errors import RunTimeoutError, WorkflowStateError
+from dark_factory.domain.types import (
+    EvidenceManifest,
+    ModelTelemetry,
+    PhaseTiming,
+    RunStatus,
+    StepExecution,
+    TaskSpec,
+)
 from dark_factory.harness.base import AgentHarness
 from dark_factory.harness.local_coder import LocalCoderHarness
 from dark_factory.orchestrator.activities import (
@@ -23,6 +32,30 @@ from dark_factory.orchestrator.activities import (
     activity_preserve_evidence,
 )
 from dark_factory.storage.evidence import EvidenceLocker
+
+# Statuses recover() must leave untouched: terminal outcomes plus AWAITING_REVIEW, which is a
+# normal resting state (pending human review), not an orphan. Derived from RunStatus.is_terminal
+# so a newly added in-flight status is picked up as an orphan automatically.
+_NON_ORPHAN_STATUSES = frozenset(s.value for s in RunStatus if s.is_terminal) | {RunStatus.AWAITING_REVIEW.value}
+
+
+@contextmanager
+def _trace(manifest: EvidenceManifest, phase: str) -> Generator[None, None, None]:
+    """Record a named phase's wall-clock duration onto the manifest.
+
+    This is the whole tracing mechanism: no external backend, just timings alongside the rest of the
+    evidence (consistent with Zero Cloud Tokens / local-first). Runs in `finally` so a phase that raises
+    (e.g. a timed-out `agent_and_verify`) still gets its elapsed time recorded before the exception
+    propagates.
+    """
+    started_at = datetime.now(UTC).isoformat()
+    start = time.monotonic()
+    try:
+        yield
+    finally:
+        manifest.phase_timings.append(
+            PhaseTiming(phase=phase, duration_sec=round(time.monotonic() - start, 3), started_at=started_at)
+        )
 
 
 class DurableEngine:
@@ -37,6 +70,11 @@ class DurableEngine:
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.storage_dir / db_name
         self.locker = EvidenceLocker(self.storage_dir)
+        # Serializes the git-mutating part of review_run's approve path: unlike sandboxes (one isolated
+        # worktree per run), activity_apply_patch mutates the host repo's actual working tree directly, so
+        # concurrent approvals against the same repo would race on `checkout -b`/`apply`/`commit`.
+        # Per-process only — see plan.md 10.11 for the cross-process limitation.
+        self._review_lock = threading.Lock()
         self._init_db()
 
     @contextmanager
@@ -154,41 +192,125 @@ class DurableEngine:
             if status_callback:
                 status_callback(st)
 
+        deadline = time.monotonic() + spec.timeout_minutes * 60
         sandbox = None
+        executions: list[StepExecution] = []
+        healing_attempts = 0
+        telemetry: ModelTelemetry | None = None
         try:
             # 1. Create Sandbox
             update_state(RunStatus.CREATING_SANDBOX)
-            sandbox = activity_create_sandbox(
-                spec=spec,
-                run_id=run_id,
-                base_dir=self.storage_dir / "sandboxes",
-            )
+            with _trace(manifest, "sandbox_create"):
+                sandbox = activity_create_sandbox(
+                    spec=spec,
+                    run_id=run_id,
+                    base_dir=self.storage_dir / "sandboxes",
+                )
 
             # 2. Run Agent & Verification Loop
             update_state(RunStatus.AGENT_RUNNING)
-            passed, healing_attempts, executions, telemetry = activity_execute_task_and_verify(
-                sandbox=sandbox,
-                harness=harness,
-                spec=spec,
-                status_callback=update_state,
-            )
+            try:
+                with _trace(manifest, "agent_and_verify"):
+                    passed, healing_attempts, executions, telemetry, repeated_failure_streak = (
+                        activity_execute_task_and_verify(
+                            sandbox=sandbox,
+                            harness=harness,
+                            spec=spec,
+                            status_callback=update_state,
+                            deadline=deadline,
+                        )
+                    )
+                manifest.repeated_failure_streak = repeated_failure_streak
+            except RunTimeoutError as timeout:
+                manifest.status = RunStatus.TIMED_OUT
+                manifest.operator_notes = f"Run exceeded its {spec.timeout_minutes:g} minute deadline."
+                timeout_diff = self._best_effort_diff(sandbox)
+                with _trace(manifest, "evidence_preserve"):
+                    activity_preserve_evidence(
+                        sandbox=sandbox,
+                        locker=self.locker,
+                        manifest=manifest,
+                        executions=timeout.executions,
+                        healing_attempts=timeout.healing_attempts,
+                        telemetry=timeout.telemetry,
+                        diff=timeout_diff,
+                    )
+                # The save above can't record its own duration; persist the now-complete phase_timings
+                # (cheap: same patch content, no transcript arg so transcript.log is left untouched).
+                self.locker.save_run(manifest, patch_content=timeout_diff)
+                update_state(RunStatus.TIMED_OUT, {"reason": "deadline_exceeded"})
+                return manifest
 
-            # 3. Assess Result & Preserve Evidence
-            if passed:
-                update_state(RunStatus.AWAITING_REVIEW)
-            else:
-                update_state(RunStatus.FAILED)
+            # 3. Assess Result. Verification exit codes decide; a no-op is never a success.
+            with _trace(manifest, "diff_extract"):
+                diff = sandbox.get_diff()
+            final_status = RunStatus.AWAITING_REVIEW if passed else RunStatus.FAILED
+            final_payload: dict | None = None
+            if passed and not diff.strip():
+                final_status = RunStatus.FAILED
+                final_payload = {"reason": "empty_patch"}
+                manifest.operator_notes = "Verification passed but the agent produced no changes (empty patch)."
+            elif not passed:
+                if repeated_failure_streak >= 1:
+                    manifest.operator_notes = (
+                        f"Verification failed after exhausting {healing_attempts} healing attempt(s); the "
+                        f"same failure repeated identically for the last {repeated_failure_streak + 1} "
+                        "attempts (the model got stuck on one approach rather than trying something "
+                        "different)."
+                    )
+                else:
+                    manifest.operator_notes = (
+                        f"Verification failed after exhausting {healing_attempts} healing attempt(s); each "
+                        "attempt failed differently."
+                    )
 
-            activity_preserve_evidence(
-                sandbox=sandbox,
-                locker=self.locker,
-                manifest=manifest,
-                executions=executions,
-                healing_attempts=healing_attempts,
-                telemetry=telemetry,
-            )
+            # 4. Preserve evidence BEFORE the durable status transition, so a crash can never leave a
+            #    review-pending run without its evidence (recover() reconciles the opposite window).
+            manifest.status = final_status
+            with _trace(manifest, "evidence_preserve"):
+                activity_preserve_evidence(
+                    sandbox=sandbox,
+                    locker=self.locker,
+                    manifest=manifest,
+                    executions=executions,
+                    healing_attempts=healing_attempts,
+                    telemetry=telemetry,
+                    diff=diff,
+                )
+            # The save above can't record its own duration; persist the now-complete phase_timings
+            # (cheap: same patch content, no transcript arg so transcript.log is left untouched).
+            self.locker.save_run(manifest, patch_content=diff)
+            update_state(final_status, final_payload)
 
             return manifest
+
+        except (KeyboardInterrupt, SystemExit) as interrupt:
+            manifest.status = RunStatus.CANCELLED
+            manifest.operator_notes = f"Run cancelled ({type(interrupt).__name__})."
+            try:
+                if sandbox is not None:
+                    # Same evidence shape as any other terminal state: preserve whatever diff the
+                    # harness had produced before the interrupt, not just the manifest/transcript.
+                    cancel_diff = self._best_effort_diff(sandbox)
+                    with _trace(manifest, "evidence_preserve"):
+                        activity_preserve_evidence(
+                            sandbox=sandbox,
+                            locker=self.locker,
+                            manifest=manifest,
+                            executions=executions,
+                            healing_attempts=healing_attempts,
+                            telemetry=telemetry,
+                            diff=cancel_diff,
+                        )
+                    # The save above can't record its own duration; persist the now-complete
+                    # phase_timings (cheap: same patch content, no transcript arg).
+                    self.locker.save_run(manifest, patch_content=cancel_diff)
+                else:
+                    self.locker.save_run(manifest, transcript=f"CANCELLED: {type(interrupt).__name__}")
+                self.transition_status(run_id, RunStatus.CANCELLED, {"reason": type(interrupt).__name__})
+            except Exception:
+                pass  # never mask the interrupt; recover() will reconcile
+            raise
 
         except Exception as e:
             import traceback
@@ -202,6 +324,13 @@ class DurableEngine:
         finally:
             if sandbox is not None:
                 activity_cleanup_sandbox(sandbox)
+
+    @staticmethod
+    def _best_effort_diff(sandbox) -> str:
+        try:
+            return sandbox.get_diff()
+        except Exception:
+            return ""
 
     def review_run(
         self,
@@ -229,12 +358,15 @@ class DurableEngine:
                         f"Expected SHA256 {manifest.patch_sha256}, got {actual_sha}."
                     )
 
-            resulting_rev = activity_apply_patch(
-                repo_path=manifest.repo_path,
-                patch_content=patch,
-                target_branch=target_branch,
-                commit_msg=f"feat(dark-factory): applied verified patch from {run_id}",
-            )
+            # Serialize the actual host-repo mutation: `git checkout -b` / `apply` / `commit` operate on
+            # one shared working tree, so two approvals racing here would corrupt each other.
+            with self._review_lock, _trace(manifest, "patch_apply"):
+                resulting_rev = activity_apply_patch(
+                    repo_path=manifest.repo_path,
+                    patch_content=patch,
+                    target_branch=target_branch,
+                    commit_msg=f"feat(dark-factory): applied verified patch from {run_id}",
+                )
             manifest.status = RunStatus.APPROVED
             manifest.resulting_rev = resulting_rev
             manifest.operator_notes = note or "Approved by operator."
@@ -271,6 +403,72 @@ class DurableEngine:
         """Fetch full evidence manifest for a run."""
         return self.locker.load_manifest(run_id)
 
+    def _reconcile_orphan(self, run_id: str) -> None:
+        """Settle a run whose process died: adopt its evidence's outcome if complete, else mark FAILED.
+
+        Evidence is written before the DB transition, and manifest.json is written last and atomically, so a
+        readable manifest with a matching patch digest proves the run really reached that outcome.
+        """
+        try:
+            manifest = self.locker.load_manifest(run_id)
+            if manifest.status == RunStatus.AWAITING_REVIEW:
+                patch = self.locker.load_patch(run_id)
+                digest = hashlib.sha256(patch.encode("utf-8")).hexdigest()
+                if manifest.patch_sha256 and digest == manifest.patch_sha256:
+                    self.transition_status(
+                        run_id,
+                        RunStatus.AWAITING_REVIEW,
+                        {"reason": "Engine restart recovery: evidence complete"},
+                    )
+                    return
+            elif manifest.status in (RunStatus.FAILED, RunStatus.TIMED_OUT, RunStatus.CANCELLED):
+                self.transition_status(run_id, manifest.status, {"reason": "Engine restart recovery"})
+                return
+        except Exception:
+            pass  # no readable evidence: fall through to FAILED
+        self.transition_status(run_id, RunStatus.FAILED, {"reason": "Engine restart recovery"})
+
+    def _reconcile_review_completeness(self, run_id: str) -> bool:
+        """Detect a crash between `transition_status(APPROVED/REJECTED)` and the final `locker.save_run()`
+        in `review_run()` (DB says the review concluded, but the manifest on disk never caught up).
+
+        For APPROVED, the patch may already have been committed to the target branch by
+        `activity_apply_patch` before the crash, so we must not re-derive or re-apply it; the only safe
+        move is to surface the inconsistency as `FAILED` with an explanatory note so the operator checks
+        the repository by hand. Returns True if an inconsistency was found and flagged.
+        """
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT status FROM runs WHERE run_id = ?;", (run_id,)).fetchone()
+        if row is None:
+            return False
+        db_status = row["status"]
+
+        try:
+            manifest = self.locker.load_manifest(run_id)
+        except Exception:
+            manifest = None
+
+        if db_status == RunStatus.APPROVED.value:
+            complete = manifest is not None and manifest.status == RunStatus.APPROVED and manifest.resulting_rev
+        elif db_status == RunStatus.REJECTED.value:
+            complete = manifest is not None and manifest.status == RunStatus.REJECTED and manifest.completed_at
+        else:
+            return False
+        if complete:
+            return False
+
+        self.transition_status(
+            run_id,
+            RunStatus.FAILED,
+            {
+                "reason": (
+                    f"Engine restart recovery: {db_status} transition did not complete "
+                    "(evidence write crashed); verify repository state manually before retrying."
+                )
+            },
+        )
+        return True
+
     def recover(self) -> list[str]:
         """Recover orphaned runs, clean their sandboxes, and prune git worktrees."""
         recovered = []
@@ -278,18 +476,17 @@ class DurableEngine:
         sandboxes_dir = self.storage_dir / "sandboxes"
 
         with self._get_connection() as conn:
+            placeholders = ",".join("?" for _ in _NON_ORPHAN_STATUSES)
             rows = conn.execute(
-                """
-                SELECT run_id, repo_path FROM runs
-                WHERE status NOT IN ('APPROVED', 'REJECTED', 'FAILED', 'TIMED_OUT', 'CANCELLED', 'AWAITING_REVIEW');
-                """
+                f"SELECT run_id, repo_path FROM runs WHERE status NOT IN ({placeholders});",
+                tuple(_NON_ORPHAN_STATUSES),
             ).fetchall()
             for row in rows:
                 rid = row["run_id"]
                 repo_path = row["repo_path"]
                 if repo_path:
                     affected_repos.add(repo_path)
-                self.transition_status(rid, RunStatus.FAILED, {"reason": "Engine restart recovery"})
+                self._reconcile_orphan(rid)
                 recovered.append(rid)
 
                 # Prune dead sandbox folder for this run
@@ -298,6 +495,18 @@ class DurableEngine:
                     import shutil
 
                     shutil.rmtree(run_sandbox, ignore_errors=True)
+
+            # Separately: catch runs whose DB status already reads APPROVED/REJECTED but whose evidence
+            # never caught up (crash between transition_status and the final locker.save_run in review_run).
+            review_rows = conn.execute(
+                "SELECT run_id FROM runs WHERE status IN (?, ?);",
+                (RunStatus.APPROVED.value, RunStatus.REJECTED.value),
+            ).fetchall()
+
+        for row in review_rows:
+            rid = row["run_id"]
+            if self._reconcile_review_completeness(rid):
+                recovered.append(rid)
 
         # Prune git worktree metadata in affected repos
         for repo_str in affected_repos:

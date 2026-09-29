@@ -72,4 +72,10 @@ python3 -m dark_factory.cli run \
   --repo /path/to/repo \
   --task "Implement thread-safe token bucket limiter" \
   --gates default
+
+# 4. Run the repeatable real-model benchmark suite
+dark-factory eval --list
+
+# 5. Browse run history, evidence, and eval reports (local, read-only, 127.0.0.1 only)
+dark-factory dashboard
 ```

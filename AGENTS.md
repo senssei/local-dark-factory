@@ -37,4 +37,35 @@ curl -s http://localhost:11434/api/tags
 
 # Run test suite:
 pytest tests/ -v
+
+# Run the repeatable real-model benchmark suite (requires a real local engine):
+dark-factory eval --list
+dark-factory eval --scenario primes --repeat 3
+
+# Browse run history, evidence, and eval reports in a local, read-only dashboard:
+dark-factory dashboard
 ```
+
+---
+
+## 🔁 Development Process (AI-Native SDLC)
+
+Every non-trivial change follows this order: **intent → spec → plan → test → code → review**. Do not skip or reorder stages. A stage is finished only when its artifact exists on disk.
+
+| # | Stage | Artifact | Finished when |
+|---|-------|----------|---------------|
+| 1 | **Intent** | `intent.md` | Problem, outcome, constraints, non-goals and success criteria still hold for this change. If the change contradicts them, update intent first and get operator approval. |
+| 2 | **Spec** | `spec.md` | The new or changed behavior is written down: interfaces, invariants, failure modes. No code is written against an undefined behavior. |
+| 3 | **Plan** | `plan.md` | Work is broken into prioritized, unchecked `- [ ]` items under a phase, each naming the file it touches. |
+| 4 | **Test** | `tests/` | A regression/acceptance test exists and has been **seen failing for the right reason** (red). |
+| 5 | **Code** | `dark_factory/` | The smallest change that turns the tests green. No unrelated refactors or drive-by cleanups. |
+| 6 | **Review** | `REVIEW.md` | All gates below are green, plan boxes are ticked, `CHANGELOG.md` is updated, and the operator approves. |
+
+### Process rules
+
+- **Gates decide, not opinion** (Core Rule 2 applied to ourselves): a plan checkbox is ticked only after `pytest tests/ -v`, `ruff check .` and `ruff format --check .` all exit `0`. Run `mkdocs build --strict` too when `docs/` or `mkdocs.yml` changed.
+- **Bug fixes** start at stage 4: reproduce the bug with a failing test, update `spec.md` if the intended behavior was undefined, then fix.
+- **Trivial changes** (typos, comments, docs-only wording) may skip stages 1–4; say so in the commit message.
+- **One logical change per commit**, conventional-commit style (`feat(scope):`, `fix(scope):`, `docs(scope):`). Commit and push only when the operator asks.
+- **Docs mirrors:** `docs/sdlc/{intent,spec,claude,agents,review}.md` are copies of the root `intent.md`, `spec.md`, `CLAUDE.md`, `AGENTS.md`, `REVIEW.md`. Change both in the same commit.
+- **Operator gates:** the operator approves intent changes, releases (tags, PyPI) and anything touching the Core Rules below. Stop and ask instead of assuming.

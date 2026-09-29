@@ -29,6 +29,16 @@ class VerificationFailedError(DarkFactoryError):
     """Raised when deterministic verification gates fail and maximum healing retries are exceeded."""
 
 
+class RunTimeoutError(DarkFactoryError):
+    """Raised when a run exceeds its deadline; carries the partial results gathered so far."""
+
+    def __init__(self, message: str, executions=None, healing_attempts: int = 0, telemetry=None) -> None:
+        super().__init__(message)
+        self.executions = list(executions or [])
+        self.healing_attempts = healing_attempts
+        self.telemetry = telemetry
+
+
 class WorkflowStateError(DarkFactoryError):
     """Raised on invalid workflow state transitions or journal corruption."""
 

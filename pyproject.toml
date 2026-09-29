@@ -47,3 +47,6 @@ ignore = ["E501", "B008"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+    "local_engine: requires a real local inference engine (Ollama or Prism) reachable on localhost",
+]

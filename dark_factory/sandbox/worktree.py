@@ -53,6 +53,7 @@ class GitWorktreeSandbox(Sandbox):
                 cwd=self.repo_path,
                 capture_output=True,
                 text=True,
+                errors="replace",
                 check=True,
             )
             self._base_sha = rev_res.stdout.strip()
@@ -70,6 +71,7 @@ class GitWorktreeSandbox(Sandbox):
                 cwd=self.repo_path,
                 capture_output=True,
                 text=True,
+                errors="replace",
                 check=True,
             )
             self._created = True
@@ -110,6 +112,7 @@ class GitWorktreeSandbox(Sandbox):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                errors="replace",
             )
             stdout, stderr = process.communicate(timeout=timeout)
             exit_code = process.returncode
@@ -155,6 +158,7 @@ class GitWorktreeSandbox(Sandbox):
             raise SandboxError("Sandbox has not been created yet.")
         target_file = (self.sandbox_dir / rel_path).resolve()
         self._check_path_within_sandbox(target_file)
+        self._check_not_git_metadata(target_file)
         target_file.parent.mkdir(parents=True, exist_ok=True)
         target_file.write_bytes(content)
 
@@ -177,29 +181,34 @@ class GitWorktreeSandbox(Sandbox):
             pass
 
         # Stage untracked files intent-to-add so diff captures new files too
-        subprocess.run(
-            ["git", "add", "-N", "."],
-            cwd=self.sandbox_dir,
-            capture_output=True,
-            text=True,
-        )
+        self._run_diff_git(["git", "add", "-N", "."])
 
-        diff_res = subprocess.run(
+        # Independent of user git config (color.ui, diff.external, diff.noprefix, diff.renames, ...): the
+        # stored patch must be plain, a/ b/ prefixed, rename-free and binary-safe so it re-applies cleanly.
+        return self._run_diff_git(
             [
                 "git",
                 "diff",
                 "HEAD",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-renames",
+                "--binary",
+                "--src-prefix=a/",
+                "--dst-prefix=b/",
                 "--",
                 ".",
                 ":(exclude)__pycache__",
                 ":(exclude)*.pyc",
                 ":(exclude).pytest_cache",
-            ],
-            cwd=self.sandbox_dir,
-            capture_output=True,
-            text=True,
+            ]
         )
-        return diff_res.stdout
+
+    def _run_diff_git(self, argv: list[str]) -> str:
+        proc = subprocess.run(argv, cwd=self.sandbox_dir, capture_output=True, text=True, errors="replace")
+        if proc.returncode != 0:
+            raise SandboxError(f"git diff extraction failed at '{' '.join(argv[:3])}': {proc.stderr.strip()}")
+        return proc.stdout
 
     def restore_paths(self, paths: list[str], rev: str | None = None) -> list[str]:
         """Restore specified paths to their baseline state at the given revision.
@@ -222,6 +231,7 @@ class GitWorktreeSandbox(Sandbox):
                 cwd=self.sandbox_dir,
                 capture_output=True,
                 text=True,
+                errors="replace",
             )
             # 2. Check for untracked new files under path
             untracked_res = subprocess.run(
@@ -229,6 +239,7 @@ class GitWorktreeSandbox(Sandbox):
                 cwd=self.sandbox_dir,
                 capture_output=True,
                 text=True,
+                errors="replace",
             )
             has_diff = bool(diff_res.stdout.strip())
             has_untracked = bool(untracked_res.stdout.strip())
@@ -240,6 +251,7 @@ class GitWorktreeSandbox(Sandbox):
                     cwd=self.sandbox_dir,
                     capture_output=True,
                     text=True,
+                    errors="replace",
                 )
                 # Clean untracked files
                 subprocess.run(
@@ -247,6 +259,7 @@ class GitWorktreeSandbox(Sandbox):
                     cwd=self.sandbox_dir,
                     capture_output=True,
                     text=True,
+                    errors="replace",
                 )
                 restored.append(rel)
 
@@ -264,6 +277,7 @@ class GitWorktreeSandbox(Sandbox):
                 cwd=self.repo_path,
                 capture_output=True,
                 text=True,
+                errors="replace",
                 check=False,
             )
         except Exception:
@@ -280,6 +294,7 @@ class GitWorktreeSandbox(Sandbox):
                 cwd=self.repo_path,
                 capture_output=True,
                 text=True,
+                errors="replace",
                 check=False,
             )
         except Exception:
@@ -293,8 +308,15 @@ class GitWorktreeSandbox(Sandbox):
             cwd=self.repo_path,
             capture_output=True,
             text=True,
+            errors="replace",
         )
         return res.returncode == 0
+
+    def _check_not_git_metadata(self, path: Path) -> None:
+        """Agents must never write `.git` (the worktree `gitdir:` pointer) or anything beneath it."""
+        rel_parts = path.relative_to(self.sandbox_dir).parts
+        if any(part.casefold() == ".git" for part in rel_parts):
+            raise SandboxError(f"Writes to git metadata (.git) are forbidden: {path}")
 
     def _check_path_within_sandbox(self, path: Path) -> None:
         try:

@@ -31,6 +31,7 @@ def test_evidence_locker_save_and_load(tmp_path: Path):
         total_tokens=300,
         tokens_per_sec=35.5,
     )
+    manifest.repeated_failure_streak = 2
 
     diff = "--- a/file.py\n+++ b/file.py\n@@ -1 +1 @@\n-old\n+new\n"
     transcript = "=== Transcript ===\nStep test: PASSED\n"
@@ -44,6 +45,7 @@ def test_evidence_locker_save_and_load(tmp_path: Path):
     assert loaded.patch_size_bytes == len(diff.encode("utf-8"))
     assert loaded.model_telemetry.tokens_per_sec == 35.5
     assert len(loaded.verification_results) == 1
+    assert loaded.repeated_failure_streak == 2
 
     loaded_patch = locker.load_patch("run-test-storage-01")
     assert loaded_patch == diff
@@ -52,3 +54,27 @@ def test_evidence_locker_save_and_load(tmp_path: Path):
     all_runs = locker.list_runs()
     assert len(all_runs) == 1
     assert all_runs[0].run_id == "run-test-storage-01"
+
+
+def test_load_manifest_defaults_repeated_failure_streak_for_old_manifests(tmp_path: Path):
+    """A manifest.json written before this field existed must still load cleanly."""
+    import json
+
+    locker = EvidenceLocker(storage_dir=tmp_path)
+    run_dir = tmp_path / "runs" / "run-legacy"
+    run_dir.mkdir(parents=True)
+    (run_dir / "diff.patch").write_text("")
+    legacy_manifest = {
+        "run_id": "run-legacy",
+        "status": "AWAITING_REVIEW",
+        "repo_path": "/tmp/fake_repo",
+        "base_rev": "abc1234",
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "healing_attempts": 0,
+        "verification_results": [],
+        # no "repeated_failure_streak" key at all, matching a pre-Phase-12 manifest
+    }
+    (run_dir / "manifest.json").write_text(json.dumps(legacy_manifest))
+
+    loaded = locker.load_manifest("run-legacy")
+    assert loaded.repeated_failure_streak == 0

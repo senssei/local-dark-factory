@@ -2,10 +2,35 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
+from dark_factory.domain.errors import RunTimeoutError
 from dark_factory.domain.types import StepExecution, VerificationStep
 from dark_factory.sandbox.base import Sandbox
+
+# Gate definitions and test-runner configuration an agent must not be able to weaken (e.g. via
+# `[tool.pytest.ini_options] addopts = "--deselect ..."` or a root `conftest.py` that skips tests).
+_DEFAULT_PROTECTED_PATHS = (
+    "tests",
+    "test",
+    "test.sh",
+    "pytest.ini",
+    "tox.ini",
+    "pyproject.toml",
+    "setup.cfg",
+    ".coveragerc",
+)
+# Files that alter test-runner / interpreter behaviour at any directory depth (git glob pathspecs).
+_DEFAULT_PROTECTED_ANYWHERE = ("conftest.py", "sitecustomize.py", "usercustomize.py")
+
+# Runner/interpreter binaries: never themselves a path to protect.
+_RUNNER_LITERALS = frozenset({"python", "python3", "pytest", "sh", "bash"})
+# Linters/formatters/type-checkers: their argv names the file(s) the agent must be free to edit (the lint
+# *target*), not a test/gate file, so a step invoking one of these contributes nothing to the
+# argv-derived protected-path set (the fixed `_DEFAULT_PROTECTED_PATHS` baseline still applies).
+_LINTER_LIKE_TOOLS = frozenset({"ruff", "flake8", "pylint", "mypy", "pyright", "black", "isort"})
 
 
 @dataclass
@@ -49,23 +74,37 @@ class VerificationRunner:
         self.base_rev = base_rev
 
     def detect_default_gate_paths(self) -> list[str]:
-        """Infer default protected gate files and directories from configured steps."""
+        """Infer default protected gate files and directories from configured steps.
+
+        A step that invokes a linter/formatter/type-checker (`ruff`, `mypy`, ...) names its lint
+        *targets* in argv, not test/gate files — those are exactly the files the agent is expected to
+        edit, so such a step contributes nothing to the detected set (the fixed `_DEFAULT_PROTECTED_PATHS`
+        baseline still applies). Without this, a gate like `ruff check <file>` would get `<file>` silently
+        reverted to baseline before every verification pass, making the task unsolvable whenever the lint
+        target is the very file the agent must fix.
+        """
         paths = set()
         for step in self.steps:
+            if any(Path(arg.removeprefix("./")).stem in _LINTER_LIKE_TOOLS for arg in step.argv):
+                continue
             for arg in step.argv:
-                arg_clean = arg.lstrip("./")
+                arg_clean = arg.removeprefix("./")
                 if (
                     arg_clean
                     and not arg_clean.startswith("-")
-                    and arg_clean not in {"python", "python3", "pytest", "sh", "bash"}
+                    and arg_clean not in _RUNNER_LITERALS
                     and not arg_clean.endswith(".exe")
                 ):
                     paths.add(arg_clean)
-        paths.update(["tests", "test", "test.sh", "pytest.ini", "tox.ini"])
+        paths.update(_DEFAULT_PROTECTED_PATHS)
+        paths.update(f":(glob)**/{name}" for name in _DEFAULT_PROTECTED_ANYWHERE)
         return sorted(paths)
 
-    def run(self, sandbox: Sandbox) -> VerificationOutcome:
-        """Run all verification steps. Stops on the first failing mandatory step."""
+    def run(self, sandbox: Sandbox, deadline: float | None = None) -> VerificationOutcome:
+        """Run all verification steps. Stops on the first failing mandatory step.
+
+        `deadline` is a `time.monotonic()` instant; each gate's timeout is clamped to the time remaining.
+        """
         if not self.steps:
             if self.allow_no_verify:
                 return VerificationOutcome(passed=True, executions=[])
@@ -93,9 +132,27 @@ class VerificationRunner:
         executions = []
 
         for step in self.steps:
+            # Spec §202: deadline is enforced at every phase boundary. When it has already
+            # passed, the next gate must NOT be launched; we surface the partial executions
+            # so the engine can adopt a TIMED_OUT outcome without spawning further sub-processes.
+            if deadline is not None and time.monotonic() >= deadline:
+                raise RunTimeoutError(
+                    "Verification deadline exceeded before gate execution.",
+                    executions=executions,
+                )
+            timeout = step.timeout_sec
+            if deadline is not None:
+                remaining = int(deadline - time.monotonic())
+                if remaining <= 0:
+                    # Defensive: should be unreachable thanks to the short-circuit above.
+                    raise RunTimeoutError(
+                        "Verification deadline exceeded during gate scheduling.",
+                        executions=executions,
+                    )
+                timeout = min(timeout, remaining)
             exec_res = sandbox.execute(
                 argv=step.argv,
-                timeout=step.timeout_sec,
+                timeout=timeout,
                 step_id=step.id,
             )
             executions.append(exec_res)

@@ -41,6 +41,11 @@ class Sandbox(ABC):
     def restore_paths(self, paths: list[str], rev: str | None = None) -> list[str]:
         """Restore specified paths to their baseline state at the given revision.
 
+        `paths` entries are plain sandbox-relative paths OR git pathspec-magic strings such as
+        `:(glob)**/conftest.py` (`VerificationRunner.detect_default_gate_paths()` emits both forms to
+        protect files at any directory depth). Implementations MUST honor `:(glob)` magic, not just
+        literal paths, or gate protection silently stops covering nested files.
+
         Returns the list of paths that were actually modified and restored.
         """
 

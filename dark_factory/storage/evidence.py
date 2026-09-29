@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from dark_factory.domain.errors import RunNotFoundError
 from dark_factory.domain.types import (
     EvidenceManifest,
     ModelTelemetry,
+    PhaseTiming,
     RunStatus,
     StepExecution,
 )
@@ -55,7 +57,10 @@ class EvidenceLocker:
         # Write manifest.json
         manifest_file = run_folder / "manifest.json"
         manifest_data = asdict(manifest)
-        manifest_file.write_text(json.dumps(manifest_data, indent=2), encoding="utf-8")
+        # Written last and atomically: a readable manifest.json proves the rest of the evidence is complete.
+        tmp_file = manifest_file.with_suffix(".json.tmp")
+        tmp_file.write_text(json.dumps(manifest_data, indent=2), encoding="utf-8")
+        os.replace(tmp_file, manifest_file)
 
         return run_folder
 
@@ -74,6 +79,7 @@ class EvidenceLocker:
             telemetry = ModelTelemetry(**data["model_telemetry"])
 
         verification_results = [StepExecution(**step) for step in data.get("verification_results", [])]
+        phase_timings = [PhaseTiming(**pt) for pt in data.get("phase_timings", [])]
 
         return EvidenceManifest(
             run_id=data["run_id"],
@@ -90,6 +96,8 @@ class EvidenceLocker:
             verification_results=verification_results,
             model_telemetry=telemetry,
             operator_notes=data.get("operator_notes"),
+            phase_timings=phase_timings,
+            repeated_failure_streak=data.get("repeated_failure_streak", 0),
         )
 
     def load_patch(self, run_id: str) -> str:

@@ -16,6 +16,8 @@ Both `dark-factory` and `local-dark-factory` point to the same binary.
 | [`dark-factory describe`](#dark-factory-describe) | Inspect full evidence manifest, telemetry, diff, and gate executions. |
 | [`dark-factory review`](#dark-factory-review) | Human-in-the-loop review decision (`--approve` or `--reject`). |
 | [`dark-factory recover`](#dark-factory-recover) | Clean crashed runs and prune orphaned worktrees. |
+| [`dark-factory eval`](#dark-factory-eval) | Run the repeatable real-model benchmark suite. |
+| [`dark-factory dashboard`](#dark-factory-dashboard) | Launch the local, read-only web dashboard. |
 
 ---
 
@@ -120,3 +122,57 @@ dark-factory recover
 - Leaves runs awaiting human review (`AWAITING_REVIEW`) intact.
 - Marks crashed or orphaned runs as `FAILED`.
 - Cleans orphaned sandbox directories and runs `git worktree prune` on affected repositories.
+
+---
+
+## `dark-factory eval`
+
+Runs a standardized suite of real-model tasks and reports self-healing convergence — a repeatable
+replacement for one-off manual test scripts. Requires a real local engine (Ollama or Prism); this is an
+operator-triggered tool, never run by the default `pytest` suite.
+
+```bash
+# List available scenarios
+dark-factory eval --list
+
+# Run every scenario once
+dark-factory eval
+
+# Run a specific scenario 3 times
+dark-factory eval --scenario csvparse --repeat 3
+```
+
+### Options
+- `--scenario NAME`: Scenario to run (repeatable; default: all registered scenarios).
+- `--repeat INT`: Number of attempts per scenario (default: `1`).
+- `--model NAME`: Local model name (default: `qwen2.5-coder:14b`).
+- `--ollama-url URL` / `--prism-url URL`: Local engine endpoints.
+- `--storage-dir PATH`: Journal directory (default: `.factory`).
+- `--keep-repos`: Keep scaffolded scenario repos on disk for inspection instead of deleting them.
+- `--list`: Print available scenarios and exit.
+
+Scenario runs are driven through a **separate** journal (`.factory/eval-runs/`), never the main run
+history, so they never appear in `dark-factory list`/`review`. Reports are saved as JSON under
+`.factory/evals/<timestamp>.json` and are viewable in the [dashboard](#dark-factory-dashboard)'s Eval view.
+
+---
+
+## `dark-factory dashboard`
+
+Launches a local, **read-only** web dashboard for browsing run history, evidence, and eval reports.
+
+```bash
+dark-factory dashboard
+```
+
+- Binds to `127.0.0.1` only — there is no host/bind-address flag; the dashboard is never reachable from
+  another machine.
+- No write actions anywhere: every non-`GET` request returns `405 Method Not Allowed`. Approve/reject a run
+  via `dark-factory review`, not the dashboard.
+- Built entirely on the Python standard library (`http.server`) — no new dependency.
+- Run detail pages render the unified diff with GitHub-style add/removed line highlighting.
+
+### Options
+- `--port INT`: Port to listen on (default: `8420`).
+- `--storage-dir PATH`: Journal directory (default: `.factory`).
+- `--no-browser`: Do not auto-open a browser tab.

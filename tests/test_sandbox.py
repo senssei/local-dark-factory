@@ -145,3 +145,100 @@ def test_worktree_restore_paths(temp_git_repo: Path, tmp_path: Path):
         assert restored_again == []
     finally:
         sandbox.destroy()
+
+
+@pytest.mark.parametrize("bad_path", [".git", ".git/config", "sub/.git", "./.git"])
+def test_worktree_rejects_writes_to_git_metadata(temp_git_repo: Path, tmp_path: Path, bad_path: str):
+    sandbox = GitWorktreeSandbox(
+        repo_path=temp_git_repo,
+        sandbox_id="run-test-dotgit",
+        base_dir=tmp_path / "sandboxes",
+    )
+    sandbox.create()
+    try:
+        original = (sandbox.path / ".git").read_bytes()
+        with pytest.raises(SandboxError, match=r"\.git"):
+            sandbox.write_file(bad_path, b"gitdir: /somewhere/else\n")
+        # The worktree pointer must be untouched.
+        assert (sandbox.path / ".git").read_bytes() == original
+    finally:
+        sandbox.destroy()
+
+
+def test_worktree_allows_gitignore_like_names(temp_git_repo: Path, tmp_path: Path):
+    sandbox = GitWorktreeSandbox(
+        repo_path=temp_git_repo,
+        sandbox_id="run-test-gitignore",
+        base_dir=tmp_path / "sandboxes",
+    )
+    sandbox.create()
+    try:
+        sandbox.write_file(".gitignore", b"*.log\n")
+        sandbox.write_file(".github/workflows/ci.yml", b"name: ci\n")
+        assert sandbox.read_file(".gitignore") == b"*.log\n"
+    finally:
+        sandbox.destroy()
+
+
+def test_get_diff_ignores_user_git_config(temp_git_repo: Path, tmp_path: Path):
+    """diff.noprefix / color.ui / binary files must not corrupt the stored patch."""
+    subprocess.run(["git", "config", "diff.noprefix", "true"], cwd=temp_git_repo, check=True)
+    subprocess.run(["git", "config", "color.ui", "always"], cwd=temp_git_repo, check=True)
+    subprocess.run(["git", "config", "diff.mnemonicPrefix", "true"], cwd=temp_git_repo, check=True)
+
+    sandbox = GitWorktreeSandbox(
+        repo_path=temp_git_repo,
+        sandbox_id="run-test-diffcfg",
+        base_dir=tmp_path / "sandboxes",
+    )
+    sandbox.create()
+    try:
+        sandbox.write_file("hello.py", b"print('changed')\n")
+        sandbox.write_file("blob.bin", bytes(range(256)))
+        diff = sandbox.get_diff()
+
+        assert "diff --git a/hello.py b/hello.py" in diff
+        assert "diff --git a/blob.bin b/blob.bin" in diff
+        assert "\x1b[" not in diff
+        assert "GIT binary patch" in diff
+
+        # The patch must apply cleanly to the pristine baseline.
+        check = subprocess.run(
+            ["git", "apply", "--check", "-"], cwd=temp_git_repo, input=diff, text=True, capture_output=True
+        )
+        assert check.returncode == 0, check.stderr
+    finally:
+        sandbox.destroy()
+
+
+def test_get_diff_raises_when_git_fails(temp_git_repo: Path, tmp_path: Path):
+    sandbox = GitWorktreeSandbox(
+        repo_path=temp_git_repo,
+        sandbox_id="run-test-diffbroken",
+        base_dir=tmp_path / "sandboxes",
+    )
+    sandbox.create()
+    try:
+        (sandbox.path / ".git").unlink()  # sandbox is no longer a valid worktree
+        with pytest.raises(SandboxError, match="git diff"):
+            sandbox.get_diff()
+    finally:
+        sandbox.destroy()
+
+
+def test_restore_paths_glob_covers_nested_conftest(temp_git_repo: Path, tmp_path: Path):
+    sandbox = GitWorktreeSandbox(
+        repo_path=temp_git_repo,
+        sandbox_id="run-test-glob",
+        base_dir=tmp_path / "sandboxes",
+    )
+    sandbox.create()
+    try:
+        sandbox.write_file("conftest.py", b"collect_ignore_glob = ['*']\n")
+        sandbox.write_file("pkg/sub/conftest.py", b"collect_ignore_glob = ['*']\n")
+        restored = sandbox.restore_paths([":(glob)**/conftest.py"])
+        assert restored == [":(glob)**/conftest.py"]
+        assert not (sandbox.path / "conftest.py").exists()
+        assert not (sandbox.path / "pkg" / "sub" / "conftest.py").exists()
+    finally:
+        sandbox.destroy()
