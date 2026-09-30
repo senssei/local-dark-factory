@@ -35,11 +35,10 @@ The human operator transitions from a "boilerplate typist" to an **AI Factory Ma
    - Fast triage & refactoring: `qwen2.5-coder:7b` (Ollama) or `phi4-mini` via Prism CUDA (`http://127.0.0.1:5272/v1`).
    - Zero external cloud token usage.
 3. **Sandboxing**:
-   - Primary: `GitWorktreeSandbox` (sub-100ms startup, zero daemon dependency, isolated working trees).
-   - Optional: `DockerSandbox` (ephemeral container when system isolation is requested).
+   - Primary: `GitWorktreeSandbox` (zero daemon dependency, isolated working trees).
 4. **Durable Orchestration**:
    - Zero-dependency embedded SQLite workflow journal (`.factory/factory.db`) for instant state transitions and crash recovery.
-   - Optional adapter to Temporal CLI dev server (`temporal server start-dev`).
+   - Temporal is a forward-looking seam only; no Temporal worker is registered in this release.
 
 ---
 
@@ -48,6 +47,7 @@ The human operator transitions from a "boilerplate typist" to an **AI Factory Ma
 1. **Cloud Multi-Tenancy**: This is a sovereign, single-tenant, local-first factory for the developer and their infrastructure.
 2. **Web SaaS Hosting**: No external public SaaS or user authentication systems. All control is local via CLI and optional localhost dashboard.
 3. **Specific Framework Lock-in**: The factory must remain agnostic to project languages (supporting Python, Go, Rust, Node.js, C++, and shell-based repositories).
+4. **Container Sandboxing**: No `DockerSandbox` or other container sandbox; isolation is `git worktree` only (see `spec.md`, isolation limit).
 
 ---
 

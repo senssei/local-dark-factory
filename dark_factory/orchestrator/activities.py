@@ -1,7 +1,8 @@
 """Stateless workflow activities for Sovereign Dark Factory (Option C Architecture).
 
 These functions encapsulate the core steps of a factory run and can be executed
-either directly by the embedded SQLite engine or registered as Temporal Activities.
+directly by the embedded SQLite engine. Option C is a forward-looking seam; no Temporal worker
+is registered in this release.
 """
 
 from __future__ import annotations

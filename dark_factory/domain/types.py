@@ -94,7 +94,7 @@ class PhaseTiming:
 
 @dataclass
 class ModelTelemetry:
-    """Telemetry captured from local inference engines (Ollama / Prism / Foundry)."""
+    """Telemetry captured from local inference engines (Ollama / Prism)."""
 
     engine: str
     model_name: str

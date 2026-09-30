@@ -119,8 +119,16 @@ Recovers runs interrupted by power failures, crashes, or abrupt termination.
 dark-factory recover
 ```
 
+Example output:
+```text
+Recovered 2 run(s) and pruned orphaned sandboxes.
+ - run-20260929-200445-95ae65
+ - run-20260929-201112-3fc2a0
+```
+
 - Leaves runs awaiting human review (`AWAITING_REVIEW`) intact.
-- Marks crashed or orphaned runs as `FAILED`.
+- Settles each crashed or orphaned run from its evidence. The recorded outcome is adopted only when the manifest proves it: `AWAITING_REVIEW` when the patch digest still matches `manifest.json`, and `FAILED`, `TIMED_OUT` or `CANCELLED` as recorded. Every other case is marked `FAILED`: no readable manifest, a missing or mismatching patch digest, or a manifest in any other status.
+- Flags runs the database shows as `APPROVED` or `REJECTED` but whose evidence never caught up (a crash during review) as `FAILED`: an `APPROVED` run needs a manifest with `APPROVED` status and a resulting revision, a `REJECTED` run needs one with `REJECTED` status and a completion time. Check the repository by hand after such a run.
 - Cleans orphaned sandbox directories and runs `git worktree prune` on affected repositories.
 
 ---

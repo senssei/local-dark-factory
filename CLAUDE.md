@@ -71,7 +71,7 @@ dark_factory/
 ## 🧠 Local AI Skills Integration
 
 When writing or refactoring code in this repository, leverage our local skills and engines:
-- **`local-coder`**: Unified multi-engine router across Ollama, Prism CUDA, and Foundry Local.
+- **`local-coder`**: Unified multi-engine router skill (the factory harness itself uses Ollama, then Prism CUDA).
 - **`ollama-coder`**: Direct Ollama CLI (`qwen2.5-coder:14b`, `llama3.1:8b`).
-- **`foundry-coder`**: Direct Prism / Foundry Local connector.
+- **`foundry-coder`**: Direct connector skill for the operator; not used by the factory harness.
 - Status check: `dark-factory doctor`

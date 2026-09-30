@@ -38,7 +38,7 @@ Task Submission (CLI / Trigger)
 Durable SQLite Workflow Engine (.factory/factory.db)
        │
        ▼
-Disposable Git Worktree Sandbox (<100ms startup)
+Disposable Git Worktree Sandbox
        │
        ▼
 Local Agent Harness (local-coder)

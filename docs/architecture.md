@@ -1,6 +1,6 @@
 # System Architecture
 
-The **Sovereign Dark Factory** implements a clean layered architecture designed around the **Option C** pattern: stateless, idempotent domain activities orchestratable by an embedded SQLite workflow engine or pluggable into enterprise temporal engines.
+The **Sovereign Dark Factory** implements a clean layered architecture designed around the **Option C** pattern: stateless, idempotent domain activities orchestratable by an embedded SQLite workflow engine or, in future, an external workflow engine. Option C is a forward-looking seam; no Temporal worker is registered in this release.
 
 ---
 
@@ -57,13 +57,14 @@ graph TD
 - **`EvidenceManifest`**: Immutable audit record storing run metadata, patch SHA256 digest, telemetry, and gate results.
 
 ### 2. Sandbox Fabric (`dark_factory.sandbox`)
-- **`GitWorktreeSandbox`**: Creates detached worktrees on the host filesystem in `<100ms`.
+- **`GitWorktreeSandbox`**: Creates detached worktrees on the host filesystem.
 - **Directory Traversal Defense**: Enforces strict path bounds checking on all read/write operations.
 - **Bytecode Purging**: Cleans `__pycache__` and `*.pyc` before calculating git diffs.
-- **Gate Restoration**: Restores protected baseline test scripts before running tests.
+- **`restore_paths`**: Primitive that resets named paths to a baseline revision. It is *called by* the `VerificationRunner` (see Gate Tamper Protection below); the sandbox itself does not decide what is protected.
 
 ### 3. Verification & Self-Healing (`dark_factory.verification`)
 - **`VerificationRunner`**: Deterministic test runner executing structured `argv` commands sequentially.
+- **Gate Tamper Protection**: Before running the gates, resets the protected paths (see [Verification Gates](verification-gates.md), including when the defaults do not apply) to `base_rev` through `Sandbox.restore_paths`. A run with zero gates stops before this step.
 - **Zero-Gate Detection**: Aborts runs with zero gates unless explicitly bypassed.
 - **`SelfHealingLoop`**: Captures exit codes, stdout, and stderr from failed runs, merges them with the original task specification, and re-prompts the local LLM.
 

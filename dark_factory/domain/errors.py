@@ -22,7 +22,7 @@ class HarnessError(DarkFactoryError):
 
 
 class LocalEngineOfflineError(HarnessError):
-    """Raised when Ollama, Prism, or Foundry Local are unreachable."""
+    """Raised when Ollama or Prism are unreachable."""
 
 
 class VerificationFailedError(DarkFactoryError):

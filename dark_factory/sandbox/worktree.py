@@ -17,7 +17,7 @@ from dark_factory.sandbox.base import Sandbox
 
 
 class GitWorktreeSandbox(Sandbox):
-    """A lightweight, isolated sandbox using git worktrees (<100ms startup)."""
+    """A lightweight, isolated sandbox using git worktrees."""
 
     def __init__(
         self,

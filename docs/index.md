@@ -17,7 +17,7 @@ A 100% sovereign, local-first **autonomous AI Software Factory orchestrator** de
 ```mermaid
 flowchart TD
     A[Task Specification] --> B[Durable SQLite Engine]
-    B --> C[Git Worktree Sandbox <100ms]
+    B --> C[Git Worktree Sandbox]
     C --> D[Local Inference Harness: Ollama / Prism CUDA]
     D --> E[Deterministic Verification Gates]
     E -- Failed --> F[AST Self-Healing Loop max N retries]
@@ -33,7 +33,7 @@ flowchart TD
 - :octicons-shield-lock-24: **Zero Cloud Tokens**
     Operates 100% locally on workstation hardware (NVIDIA RTX / Apple Silicon). Never makes external cloud API calls ($0.00 token cost).
 
-- :octicons-cpu-24: **Sub-100ms Disposable Sandboxes**
+- :octicons-cpu-24: **Disposable Sandboxes**
     Eliminates heavyweight Docker overhead by utilizing native `git worktree` isolation with directory sanitization and strict path-traversal prevention.
 
 - :octicons-check-circle-24: **Authoritative Verification Gates**

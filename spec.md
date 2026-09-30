@@ -141,15 +141,12 @@ class EvidenceManifest:
 
 - **`GitWorktreeSandbox` (Default)**:
   - Uses `git worktree add --detach <sandbox_path> <base_rev>`.
-  - Generates zero container overhead (<100ms startup).
+  - Generates zero container overhead.
   - Sanitizes environment variables to prevent host secret leaks.
   - Deletion via `git worktree remove --force <sandbox_path>`.
   - `write_file` / `read_file` reject path traversal; `write_file` additionally rejects any path that is or lies inside `.git` (the worktree `gitdir:` pointer must never be agent-writable).
   - `get_diff` is independent of user git configuration: it passes `--no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ --binary` (no rename detection, so every file appears once as `a/X b/X` and deletions are never lost when staging), and a failing `git` command raises `SandboxError` (it never yields a silent empty patch).
   - **Isolation limit (known):** the worktree isolates the *repository*, not the *process*. Verification steps execute on the host with the sanitized environment and network access. Stronger process isolation is tracked in `plan.md` §10.5.
-
-- **`DockerSandbox` (Optional)**:
-  - Ephemeral container with restricted volume mounts and memory limits.
 
 ---
 
@@ -161,7 +158,6 @@ class EvidenceManifest:
   - Supports automatic engine fallbacks:
     - Primary: Ollama (`qwen2.5-coder:14b`).
     - Secondary: Prism CUDA (`http://127.0.0.1:5272/v1`).
-    - Tertiary: Microsoft Foundry Local.
   - Collects token generation counts, elapsed time, and tokens/sec telemetry.
   - **File block protocol:** each file is emitted as `` ```file:<path> `` … `` ``` ``. Parsing is line-based and nesting-aware: a fence with an info string (`` ```python ``) inside a file opens a nested block, a bare fence closes it, and only a bare fence at depth 0 (at least as long as the opening one) terminates the file. File contents may therefore contain balanced markdown code fences (READMEs, docstrings) without being truncated. A block that is never terminated (truncated model output) is discarded, never written half-complete.
 

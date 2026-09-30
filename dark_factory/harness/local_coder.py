@@ -17,7 +17,7 @@ _FENCE_RE = re.compile(r"^ {0,3}(`{3,})(.*)$")
 
 
 class LocalCoderHarness(AgentHarness):
-    """Harness that leverages local LLM engines (Ollama, Prism CUDA, Foundry)."""
+    """Harness that leverages local LLM engines (Ollama, Prism CUDA)."""
 
     def __init__(
         self,

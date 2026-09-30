@@ -22,7 +22,7 @@ graph LR
     Harness[LocalCoderHarness] -->|Primary| Ollama[Ollama Server :11434]
     Harness -->|Secondary Fallback| Prism[Prism CUDA Accelerator :5272]
     Ollama --> Qwen[Qwen 2.5 Coder 14B / 7B]
-    Prism --> ONNX[Microsoft Foundry Local / ONNX GenAI]
+    Prism --> ONNX[ONNX GenAI runtime]
 ```
 
 ### 1. Ollama (`http://localhost:11434`)
@@ -37,8 +37,21 @@ ollama pull qwen2.5-coder:14b
 
 ### 2. Prism CUDA Accelerator (`http://127.0.0.1:5272/v1`)
 Prism is a high-throughput OpenAI-compatible inference server powered by ONNX Runtime GenAI and DirectML/CUDA.
-- Sub-millisecond TTFT (Time to First Token).
-- Zero memory leaks across thousands of autonomous runs.
+
+### GPU compatibility
+
+| Backend | Accelerators documented by this project |
+|---|---|
+| Ollama | NVIDIA CUDA; Apple Silicon (Metal) |
+| Prism | ONNX Runtime GenAI with DirectML / CUDA |
+
+The factory has no MLX or Apple Foundation Models fallback; on Apple Silicon, Metal is reached only through Ollama. Other accelerators (for example ROCm) and CPU-only operation depend on the backend itself and are not verified by this project.
+
+---|---|---|---|---|
+| Ollama | Yes | - | Yes | Yes |
+| Prism | Yes | Yes | No | - |
+
+There is no MLX or Apple Foundation Models fallback. On Apple Silicon use Ollama only.
 
 ---
 

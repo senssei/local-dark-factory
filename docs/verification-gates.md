@@ -40,7 +40,11 @@ sequenceDiagram
 ```
 
 Before verification executes:
-1. `GitWorktreeSandbox.restore_paths` identifies all gate files (e.g. `tests/`, `test.sh`, `pytest.ini`).
+1. The `VerificationRunner` decides which paths are protected and `GitWorktreeSandbox.restore_paths` resets them. Unless the task sets explicit `protected_paths` (Python API only; this replaces the defaults) or `allow_gate_edits` (nothing is restored), the defaults are:
+    - `tests`, `test`, `test.sh`, `pytest.ini`, `tox.ini`, `pyproject.toml`, `setup.cfg`, `.coveragerc`
+    - at any depth: `conftest.py`, `sitecustomize.py`, `usercustomize.py`
+    - every non-flag argument of a gate command other than a runner name (`python`, `python3`, `pytest`, `sh`, `bash`) or an `.exe`, taken as a path whether or not it exists
+    - a gate command that invokes a linter or type-checker (`ruff`, `flake8`, `pylint`, `mypy`, `pyright`, `black`, `isort`) contributes no argv paths, because its targets are files the agent is expected to edit
 2. If any gate file was modified or deleted by the agent, it is **restored to its baseline revision**.
 3. Any untracked test mocks or spoofed scripts are purged via `git clean -fd`.
 4. Verification runs against the true, original tests.

@@ -65,6 +65,13 @@ Example output:
 All tasks execute 100% locally with zero cloud token cost.
 ```
 
+`doctor` only reports: it exits `0` even when a backend is down (or git is missing). Runs try Ollama first and fall back to Prism. Example with Prism offline (Ollama only):
+```text
+✅ Ollama:                ONLINE (http://localhost:11434)
+   Available models (3): qwen2.5-coder:14b, llama3.1:8b, mistral:7b
+❌ Prism CUDA:            OFFLINE (http://127.0.0.1:5272/v1)
+```
+
 ---
 
 ## 🚀 Running Your First Task
@@ -84,7 +91,7 @@ dark-factory run \
 ```
 
 The factory will:
-1. Create a detached git worktree sandbox in `<100ms`.
+1. Create a detached git worktree sandbox.
 2. Inspect prompt and repository context.
 3. Call your local LLM to generate the implementation.
 4. Apply the modifications inside the isolated sandbox.

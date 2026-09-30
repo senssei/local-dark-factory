@@ -46,6 +46,9 @@ All notable changes to this project are documented in this file. The format foll
 - Git subprocess helpers (`orchestrator/activities.py:_git`, `sandbox/worktree.py`) decode with `errors="replace"`, so a non-ASCII path outside the host locale can no longer surface as an unrelated `UnicodeDecodeError`.
 - `Sandbox.restore_paths`'s contract now documents that implementations must honor `:(glob)` pathspec magic, not just literal paths.
 
+### Changed
+- Docs and docstrings aligned with the code (plan §10.7): Foundry Local is no longer described as a backend (the harness is Ollama → Prism), `DockerSandbox` moved to Non-Goals in `intent.md`, Temporal Option C is described as a forward-looking seam (no worker registered), the unverified "<100ms" worktree startup claim was dropped, and `recover`, the default protected-paths list, architecture-layer responsibilities, `doctor` with one backend offline, and a GPU compatibility table are documented. `tests/test_docs_alignment.py` guards these decisions and the `docs/sdlc/` mirrors.
+
 ## [0.1.0] - 2026-09-20
 
 First public release of **Sovereign Dark Factory** (`local-dark-factory`).

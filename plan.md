@@ -256,27 +256,29 @@ Release is **on hold** (operator decision): Phase 9.4 (PyPI) and the version bum
 
 ### 10.7 Post-Implementation Adversarial Audit — Documentation & Operations Alignment
 
+**Status:** implemented and gate-green 2026-09-30 (150 tests, ruff, mkdocs --strict, changelog); uncommitted; only the `_build_context` item below remains open (documented, not fixed, per operator decision). Review: independent subagent, 10 findings (6 fixed, 4 not defects or out of scope); fixes verified by tests and the gate only, not re-reviewed. Decisions 2026-09-30 (Foundry: remove; Docker: non-goal; Temporal: seam wording; <100ms: drop). Plan
+approved by the operator, 2026-09-30 (including the `intent.md` edits). **Invariant:** `docs/sdlc/{intent,spec,claude,agents}.md` are byte-identical
+copies of the root files and must be edited together. One new test module, `tests/test_docs_alignment.py`, guards the
+grep-able decisions (red first); the remaining items are prose proven by `mkdocs build --strict`.
+
 **Source:** adversarial review of `docs/*.md`, `intent.md`, `spec.md`, `README.md` against
 `dark_factory/` + `pyproject.toml`. Items below are **doc / operational** drift; they do **not** block
 `0.1.1` but should land before the next release that touches the affected surfaces.
 
-- [ ] **Decide and align on Foundry Local** (`docs/local-inference.md`, `README.md:46`, `CLAUDE.md`,
-  `AGENTS.md`, `dark_factory/domain/errors.py:25`). Currently the docs promise Foundry Local as a third
-  backend and the harness implements only Ollama → Prism. **Either** implement a `Foundry Local` fallback
-  path in `local_coder.py:_call_model` (after Prism) with a regression test in `tests/test_harness.py`,
-  **or** remove all references. The codebase and the docs must agree.
+- [x] **Foundry Local: remove references** (decided by the operator 2026-09-30: docs-only). Harness stays Ollama → Prism.
+  Files: `spec.md:164`, `docs/local-inference.md:25`, `README.md:46`, `CLAUDE.md:74,76`, `AGENTS.md`,
+  `dark_factory/harness/local_coder.py:20`, `dark_factory/domain/types.py:97`, `dark_factory/domain/errors.py:25`
+  (docstrings/messages only), plus the `docs/sdlc/{spec,claude,agents}.md` copies. `foundry-coder` stays an operator skill,
+  not a factory backend. **Test:** `tests/test_docs_alignment.py::test_no_foundry_backend_references`.
 
-- [ ] **Decide and align on DockerSandbox** (`intent.md:39`, `spec.md:141`,
-  `docs/architecture.md:60`). Add a stub `dark_factory/sandbox/docker.py` implementing the `Sandbox`
-  protocol (rejected unless a `--docker` flag activates it), **or** move DockerSandbox to `Non-Goals`
-  in `intent.md` and remove references. **Test:** absent → graceful error; present → `git ls-remote`
-  smoke test if implemented.
+- [x] **DockerSandbox: move to Non-Goals** (decided 2026-09-30). **Edits `intent.md` (an invariant): needs explicit
+  operator approval of the new text.** Files: `intent.md:39`, `spec.md:151`, `docs/architecture.md:60` and the
+  `docs/sdlc/{intent,spec}.md` copies. **Test:** `tests/test_docs_alignment.py::test_docker_sandbox_is_non_goal`.
 
-- [ ] **Decide and align on Temporal Option C** (`docs/architecture.md:3`,
-  `dark_factory/orchestrator/activities.py:4`). Add a skeleton module
-  `dark_factory/orchestrator/temporal_adapter.py` documenting the wiring points (activity registration
-  pattern, what would need to change), **or** rewrite `architecture.md:3` and the module docstring to
-  read *"Option C is a forward-looking seam; no Temporal worker is registered in this release"*.
+- [x] **Temporal Option C: reword as a seam** (decided 2026-09-30). Text: "Option C is a forward-looking seam; no
+  Temporal worker is registered in this release." Files: `docs/architecture.md:3`,
+  `dark_factory/orchestrator/activities.py:1-4` (docstring), `intent.md:42` (optional adapter wording, same approval as
+  the DockerSandbox `intent.md` edit) and `docs/sdlc/intent.md`. **Test:** `tests/test_docs_alignment.py::test_temporal_is_described_as_seam`.
 
 - [x] **Expose `--timeout-minutes`, `--storage-dir`, `--ollama-url`, `--prism-url` on `dark-factory run`**
   (done as part of 10.8, which needed `--storage-dir`/`--ollama-url` to make the CLI e2e test
@@ -284,31 +286,33 @@ Release is **on hold** (operator decision): Phase 9.4 (PyPI) and the version bum
   `--harness` and `--protected-paths` remain tracked in Phase 11 (protocol-level decisions). **Test:**
   `test_cli_run_respects_timeout_minutes_and_storage_dir`.
 
-- [ ] **Refresh `docs/cli.md:118-122` (`recover`)** so the description matches `_reconcile_orphan`: it
+- [x] **Refresh `docs/cli.md:118-122` (`recover`)** (verify against `_reconcile_orphan` in `orchestrator/engine.py`; proof is
+  `mkdocs build --strict`, no unit test) so the description matches `_reconcile_orphan`: it
   now adopts evidence-backed final statuses; only runs whose manifest is unreadable are escalated to
   `FAILED`. Update example output too.
 
-- [ ] **Document the auto-protected paths list** (`docs/verification-gates.md`,
+- [x] **Document the auto-protected paths list** (`docs/verification-gates.md`,
   `dark_factory/verification/runner.py:13-24`). Today the default list includes `:(glob)**/conftest.py`,
   `sitecustomize.py`, `usercustomize.py`, plus `.coveragerc`. Users reading the docs see only the old
   `tests / test.sh / pytest.ini / tox.ini` set.
 
-- [ ] **Architecture-layer responsibilities** (`docs/architecture.md:52-78`). The mermaid and the
+- [x] **Architecture-layer responsibilities** (`docs/architecture.md:52-78`). The mermaid and the
   prose currently place "Gate Restoration" inside the Sandbox layer's bullet list, but in code that
   responsibility is the `VerificationRunner`'s call into `Sandbox.restore_paths`. Reassign the
   responsibility bullets so the diagram and code match.
 
-- [ ] **`doctor` shows the offline path** (`docs/getting-started.md:55-66`). The example output is the
+- [x] **`doctor` shows the offline path** (`docs/getting-started.md:55-66`). The example output is the
   happy path only; add a second example for "Ollama-only / no Prism" so the documented expectation
   matches what the operator sees when one backend is down.
 
-- [ ] **Apple Silicon / Metal compatibility matrix** (`docs/local-inference.md`). `prism` is
+- [x] **Apple Silicon / Metal compatibility matrix** (`docs/local-inference.md`). `prism` is
   DirectML/CUDA only; there is no `mlx` / Apple Foundation Models fallback. Add a small table clarifying
   which backend supports which GPU family.
 
-- [ ] **Drop the unverified "<100ms" worktree claim** *or* ship a micro-benchmark. If kept, the
-  benchmark must be in `tests/test_sandbox.py` and asserted on the local-class host (with a generous
-  ceiling so CI variants pass).
+- [x] **Drop the unverified "<100ms" worktree claim** (decided 2026-09-30: drop, no benchmark). Files: `README.md:41`,
+  `intent.md:38`, `spec.md:144`, `docs/index.md:20,36`, `docs/architecture.md:60`, `docs/getting-started.md:87`,
+  `dark_factory/sandbox/worktree.py:20` (docstring), `docs/sdlc/{intent,spec}.md`. **Test:**
+  `tests/test_docs_alignment.py::test_no_unverified_performance_claims`.
 
 - [x] **`detect_default_gate_paths()` can't tell a lint/type-check gate's *target* file from a *test/config*
   file** — found in 10.12, **fixed in 10.13** (see below), no longer open.
