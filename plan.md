@@ -256,7 +256,7 @@ Release is **on hold** (operator decision): Phase 9.4 (PyPI) and the version bum
 
 ### 10.7 Post-Implementation Adversarial Audit — Documentation & Operations Alignment
 
-**Status:** implemented and gate-green 2026-09-30 (150 tests, ruff, mkdocs --strict, changelog); uncommitted; only the `_build_context` item below remains open (documented, not fixed, per operator decision). Review: independent subagent, 10 findings (6 fixed, 4 not defects or out of scope); fixes verified by tests and the gate only, not re-reviewed. Decisions 2026-09-30 (Foundry: remove; Docker: non-goal; Temporal: seam wording; <100ms: drop). Plan
+**Status:** implemented and gate-green 2026-09-30 (150 tests, ruff, mkdocs --strict, changelog); uncommitted; only the `_build_context` item below remains open (documented, not fixed, per operator decision). Review: independent subagent, 10 findings (7 fixed: 1-7; 3 not defects or out of scope: 8-10); fixes verified by tests and the gate only, not re-reviewed. Decisions 2026-09-30 (Foundry: remove; Docker: non-goal; Temporal: seam wording; <100ms: drop). Plan
 approved by the operator, 2026-09-30 (including the `intent.md` edits). **Invariant:** `docs/sdlc/{intent,spec,claude,agents}.md` are byte-identical
 copies of the root files and must be edited together. One new test module, `tests/test_docs_alignment.py`, guards the
 grep-able decisions (red first); the remaining items are prose proven by `mkdocs build --strict`.
