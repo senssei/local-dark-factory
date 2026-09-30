@@ -162,7 +162,7 @@ This plan defines the step-by-step development phases for **`local-dark-factory`
 
 ## Phase 10: Post-Release Audit Remediation
 
-**Status:** implemented and verified (94 tests, `ruff check`, `ruff format --check`, `mkdocs build --strict` green; a full run including all `local_engine` real-model tests passed 94/94 against the operator's real Ollama); **unreleased, uncommitted**. Changes are recorded under `[Unreleased]` in `CHANGELOG.md`. 10.6 (code defects), 10.8 (e2e coverage gaps), 10.9 (performance tracing), 10.10 (correctness-verified real-model e2e), 10.11 (concurrency/load tests, found+fixed a real git-mutation race), 10.12 (more realistic real-model e2e, found a gate-protection heuristic gap), 10.13 (fixed that heuristic gap, added real-Ollama CLI e2e and a multi-iteration self-healing test), and 10.14 (self-healing "stuck on one idea" detection, root-caused from 10.13's 1/7 failure and fixed) are all fully closed; remaining pre-release work is 10.7 (doc/ops alignment, non-blocking, now 9 items) plus the operator's explicit go-ahead.
+**Status:** implemented, verified, and **committed** (2026-09-29: `7ff5abb` eval+dashboard packages, `19f035b` everything else — not pushed to any remote). 145 tests, `ruff check`, `ruff format --check`, `mkdocs build --strict` all green; a full run including every `local_engine` real-model test passes against the operator's real Ollama. Changes are recorded under `[Unreleased]` in `CHANGELOG.md`. 10.6, 10.8, 10.9, 10.10, 10.11, 10.12, 10.13, 10.14, and 12 (eval harness + read-only dashboard) are all fully closed; remaining pre-release work is 10.7 (doc/ops alignment, non-blocking, now 9 items — including a real `_build_context` context-bloat bug found via dogfooding, documented not fixed per operator decision) plus the operator's explicit go-ahead to release.
 
 Source: code audit of `main` @ `73fb622`. Every fix ships with a regression test written first (red → green).
 Release is **on hold** (operator decision): Phase 9.4 (PyPI) and the version bump stay open until the operator schedules a release; the target version is decided then (`0.1.1` was the working assumption).
@@ -312,6 +312,27 @@ Release is **on hold** (operator decision): Phase 9.4 (PyPI) and the version bum
 
 - [x] **`detect_default_gate_paths()` can't tell a lint/type-check gate's *target* file from a *test/config*
   file** — found in 10.12, **fixed in 10.13** (see below), no longer open.
+
+- [ ] **`LocalCoderHarness._build_context()` auto-detects and inlines *any* file path mentioned in the task
+  prompt, in full, with no size cap — including files mentioned only for reference/explanation, not files
+  the agent is meant to edit.** Found 2026-09-29 during real dogfooding on this repo itself (not a
+  synthetic eval scenario): a task asking to update `docs/cli.md`'s `recover` section, whose prompt also
+  named `_reconcile_orphan()` in `dark_factory/orchestrator/engine.py` for context, caused the harness's
+  regex path-scanner (`_build_context`, `re.findall(r"[\w/\.-]+\.[a-zA-Z0-9]+", task_prompt)`) to inline the
+  **entire 519-line `engine.py`** alongside the 178-line `docs/cli.md`. With both files in context,
+  `qwen2.5-coder:14b` abandoned the edit task entirely and produced a prose *explanation* of the
+  `DurableEngine` class instead — zero `` ```file: `` blocks, `harness_result.success=False` every one of
+  4 attempts (1 initial + 3 healing), `manifest.status=FAILED` with a 0-byte patch and no verification gates
+  ever reached (the harness-parse-failure branch never gets to run verification). **Reproduced
+  deterministically**: calling `_call_model` directly with just `docs/cli.md` in context succeeded 4/4
+  times; adding `engine.py` to context reproduced the exact same derailment on the first try. Real run:
+  `run-20260929-200445-95ae65`. **Operator decision (2026-09-29): document only, do not fix in this
+  session** — a fix would need to cap/omit large auto-detected reference files (e.g. skip inlining a file
+  above some line/byte threshold unless it's also named in `target_files`, or otherwise distinguish
+  "files to edit" from "paths mentioned for context") without breaking legitimate small-file context
+  auto-detection that the rest of this session's real-model tests already depend on. **Practical workaround
+  for operators today**: describe referenced behavior in prose rather than naming the file path, or pass
+  `target_files` explicitly instead of relying on prompt-text auto-detection.
 
 ---
 
