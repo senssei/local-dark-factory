@@ -38,7 +38,7 @@ dark-factory = "dark_factory.cli:main"
 [tool.ruff]
 line-length = 120
 target-version = "py312"
-extend-exclude = [".venv", "*.md"]
+extend-exclude = [".venv", "*.md", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "UP"]

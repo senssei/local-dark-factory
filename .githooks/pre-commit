@@ -1,0 +1,10 @@
+#!/bin/sh
+# Opt-in gate before every commit (any agent, any editor, or you). Enable once per clone:
+#     git config core.hooksPath .githooks
+# Disable with: git config --unset core.hooksPath
+# It checks the working tree, not only what is staged. Agents must not bypass it with --no-verify.
+# It runs every check in sdlc.toml; to gate on fewer, add `--only NAME` for each check that is fast enough for every commit.
+# The project root is where this hook lives (the parent of .githooks), not the repository root: the project may be a subdirectory.
+root=$(cd "$(dirname "$0")/.." && pwd) || exit 1
+cd "$root" || exit 1
+exec "${PYTHON:-python3}" scripts/sdlc_check.py
