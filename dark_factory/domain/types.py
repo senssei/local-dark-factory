@@ -79,6 +79,7 @@ class TaskSpec:
     metadata: dict[str, Any] = field(default_factory=dict)
     skip_adversarial: bool = False
     mutate_adversarial: bool = False
+    skip_analysis: bool = False
     planner_model: str | None = None
     skip_plan: bool = False
 
@@ -151,6 +152,43 @@ class AdversarialReport:
 
 
 @dataclass
+class ResourceUsage:
+    """Host resources sampled during a run; a field is None when it could not be measured."""
+
+    peak_vram_mb: float | None = None
+    vram_total_mb: float | None = None
+    avg_gpu_util_pct: float | None = None
+    peak_ram_mb: float | None = None
+    ram_total_mb: float | None = None
+    samples: int = 0
+
+
+@dataclass
+class AnalysisFinding:
+    """Individual finding from the advisory performance & quality analysis."""
+
+    severity: str  # "INFO", "WARN"
+    category: str  # "performance", "resources", "quality"
+    summary: str
+    details: str = ""
+
+
+@dataclass
+class AnalysisReport:
+    """Advisory performance & quality analysis of a verified run."""
+
+    summary: str
+    resources: ResourceUsage = field(default_factory=ResourceUsage)
+    findings: list[AnalysisFinding] = field(default_factory=list)
+    metrics: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def badge(self) -> str:
+        """Overall operator badge: WARN or PASS."""
+        return "WARN" if any(f.severity == "WARN" for f in self.findings) else "PASS"
+
+
+@dataclass
 class EvidenceManifest:
     """Immutable audit record and evidence of a completed or paused run."""
 
@@ -173,6 +211,7 @@ class EvidenceManifest:
     adversarial_report: AdversarialReport | None = None
     execution_plan: ExecutionPlan | None = None
     adversarial_test_code: str | None = None
+    analysis_report: AnalysisReport | None = None
 
     @classmethod
     def create(

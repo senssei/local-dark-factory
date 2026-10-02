@@ -63,6 +63,7 @@ nav:
   - Local Inference: local-inference.md
   - Verification & Healing: verification-gates.md
   - Adversarial Pipeline: adversarial-pipeline.md
+  - Performance Analysis: performance-analysis.md
   - CLI: cli.md
   - AI-Native SDLC:
       - Intent & Vision: sdlc/intent.md

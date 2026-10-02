@@ -12,10 +12,13 @@ from dark_factory.domain.errors import RunNotFoundError
 from dark_factory.domain.types import (
     AdversarialFinding,
     AdversarialReport,
+    AnalysisFinding,
+    AnalysisReport,
     EvidenceManifest,
     ExecutionPlan,
     ModelTelemetry,
     PhaseTiming,
+    ResourceUsage,
     RunStatus,
     StepExecution,
 )
@@ -29,6 +32,32 @@ def _finding_from_dict(data: dict) -> AdversarialFinding:
         category=data.get("category", "boundary"),
         summary=data.get("summary", ""),
         details=data.get("details", ""),
+    )
+
+
+def _analysis_from_dict(data: dict) -> AnalysisReport:
+    """Build an analysis report from stored JSON, ignoring keys written by newer versions."""
+    res = data.get("resources") or {}
+    return AnalysisReport(
+        summary=data.get("summary", ""),
+        resources=ResourceUsage(
+            peak_vram_mb=res.get("peak_vram_mb"),
+            vram_total_mb=res.get("vram_total_mb"),
+            avg_gpu_util_pct=res.get("avg_gpu_util_pct"),
+            peak_ram_mb=res.get("peak_ram_mb"),
+            ram_total_mb=res.get("ram_total_mb"),
+            samples=res.get("samples", 0),
+        ),
+        findings=[
+            AnalysisFinding(
+                severity=f.get("severity", "INFO"),
+                category=f.get("category", "quality"),
+                summary=f.get("summary", ""),
+                details=f.get("details", ""),
+            )
+            for f in data.get("findings", [])
+        ],
+        metrics=data.get("metrics", {}),
     )
 
 
@@ -93,6 +122,37 @@ class EvidenceLocker:
                         f"| {f.severity} | {md_cell(f.category)} | {md_cell(f.summary)} | {md_cell(f.details)} |"
                     )
             adv_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        # Write analysis.md
+        if manifest.analysis_report:
+            report = manifest.analysis_report
+            res = report.resources
+            lines = [
+                "# Performance & Quality Analysis",
+                "",
+                f"**Badge:** {report.badge}",
+                f"**Summary:** {md_cell(report.summary)}",
+                "",
+                "## Resources",
+                "",
+                f"- Peak VRAM (MiB): {res.peak_vram_mb} / {res.vram_total_mb}",
+                f"- Avg GPU utilization (%): {res.avg_gpu_util_pct}",
+                f"- Peak RAM (MiB): {res.peak_ram_mb} / {res.ram_total_mb}",
+                f"- Samples: {res.samples}",
+                "",
+            ]
+            if report.metrics:
+                lines.extend(["## Metrics", ""])
+                for key, value in report.metrics.items():
+                    lines.append(f"- {md_cell(str(key))}: {md_cell(str(value))}")
+                lines.append("")
+            if report.findings:
+                lines.extend(["## Findings", "", "| Severity | Category | Summary | Details |", "|---|---|---|---|"])
+                for f in report.findings:
+                    lines.append(
+                        f"| {f.severity} | {md_cell(f.category)} | {md_cell(f.summary)} | {md_cell(f.details)} |"
+                    )
+            (run_folder / "analysis.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
         # Write plan.md if execution plan is present
         if manifest.execution_plan:
@@ -165,6 +225,8 @@ class EvidenceLocker:
                 findings=findings,
             )
 
+        analysis_report = _analysis_from_dict(data["analysis_report"]) if data.get("analysis_report") else None
+
         execution_plan = None
         if data.get("execution_plan"):
             ep_data = data["execution_plan"]
@@ -197,6 +259,7 @@ class EvidenceLocker:
             adversarial_report=adv_report,
             execution_plan=execution_plan,
             adversarial_test_code=data.get("adversarial_test_code"),
+            analysis_report=analysis_report,
         )
 
     def load_patch(self, run_id: str) -> str:

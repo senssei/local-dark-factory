@@ -226,3 +226,44 @@ def test_load_manifest_defaults_adversarial_test_code_for_old_manifests(tmp_path
 
     loaded = locker.load_manifest("run-no-mut")
     assert loaded.adversarial_test_code is None
+
+
+def test_evidence_locker_saves_and_loads_analysis_report(tmp_path: Path):
+    from dark_factory.domain.types import AnalysisFinding, AnalysisReport, ResourceUsage
+
+    locker = EvidenceLocker(storage_dir=tmp_path)
+    manifest = EvidenceManifest.create(run_id="run-an-storage", repo_path="/tmp/fake_repo", base_rev="abc1234")
+    manifest.analysis_report = AnalysisReport(
+        summary="VRAM tight",
+        resources=ResourceUsage(peak_vram_mb=11500, vram_total_mb=12227, samples=7),
+        findings=[AnalysisFinding("WARN", "resources", "Peak VRAM 94%", "11500/12227 MiB")],
+        metrics={"files_changed": 2, "dominant_phase": "agent_and_verify"},
+    )
+
+    run_folder = locker.save_run(manifest, patch_content="diff")
+    text = (run_folder / "analysis.md").read_text(encoding="utf-8")
+    assert "Peak VRAM 94%" in text and "11500" in text
+
+    loaded = locker.load_manifest("run-an-storage")
+    assert loaded.analysis_report is not None
+    assert loaded.analysis_report.resources.peak_vram_mb == 11500
+    assert loaded.analysis_report.resources.avg_gpu_util_pct is None
+    assert loaded.analysis_report.findings[0].category == "resources"
+    assert loaded.analysis_report.metrics["files_changed"] == 2
+
+
+def test_load_manifest_defaults_analysis_report_for_old_manifests(tmp_path: Path):
+    import json
+
+    locker = EvidenceLocker(storage_dir=tmp_path)
+    run_dir = tmp_path / "runs" / "run-no-an"
+    run_dir.mkdir(parents=True)
+    legacy = {
+        "run_id": "run-no-an",
+        "status": "AWAITING_REVIEW",
+        "repo_path": "/tmp/fake_repo",
+        "base_rev": "abc1234",
+        "created_at": "2026-01-01T00:00:00+00:00",
+    }
+    (run_dir / "manifest.json").write_text(json.dumps(legacy))
+    assert locker.load_manifest("run-no-an").analysis_report is None

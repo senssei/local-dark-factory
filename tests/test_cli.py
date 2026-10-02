@@ -206,6 +206,28 @@ def test_cli_run_passes_no_adversarial_flag(tmp_path: Path, monkeypatch):
     assert captured_specs[0].skip_adversarial is True
 
 
+def test_cli_run_no_analysis_flag_sets_skip_analysis(tmp_path: Path, monkeypatch):
+    from dark_factory.domain.types import EvidenceManifest, RunStatus
+    from dark_factory.orchestrator import DurableEngine
+
+    captured_specs = []
+
+    def mock_execute_run(self, spec, harness=None, run_id=None, status_callback=None):
+        captured_specs.append(spec)
+        manifest = EvidenceManifest.create(run_id="run-test", repo_path=spec.repo_path, base_rev=spec.base_rev)
+        manifest.status = RunStatus.AWAITING_REVIEW
+        return manifest
+
+    monkeypatch.setattr(DurableEngine, "execute_run", mock_execute_run)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "test.sh").write_text("#!/bin/sh\nexit 0\n")
+
+    assert main(["run", "--repo", str(repo), "--task", "Foo", "--no-analysis"]) == 0
+    assert main(["run", "--repo", str(repo), "--task", "Foo"]) == 0
+    assert [s.skip_analysis for s in captured_specs] == [True, False]
+
+
 def test_cli_describe_renders_adversarial_report(tmp_path: Path, capsys):
     from dark_factory.domain.types import AdversarialFinding, AdversarialReport, EvidenceManifest, RunStatus
     from dark_factory.storage import EvidenceLocker
@@ -475,3 +497,44 @@ def test_cli_describe_renders_adversarial_mutation(tmp_path: Path, capsys):
     out = capsys.readouterr().out
     assert "--- ADVERSARIAL MUTATION ---" in out
     assert "def test_probe(): assert True" in out
+
+
+def _analysis_run(tmp_path: Path):
+    from dark_factory.domain.types import (
+        AnalysisFinding,
+        AnalysisReport,
+        EvidenceManifest,
+        ResourceUsage,
+        RunStatus,
+    )
+    from dark_factory.storage import EvidenceLocker
+
+    storage = tmp_path / ".factory"
+    manifest = EvidenceManifest.create(run_id="run-an-cli", repo_path="/tmp/repo", base_rev="abc1234")
+    manifest.status = RunStatus.AWAITING_REVIEW
+    manifest.analysis_report = AnalysisReport(
+        summary="1 warning(s)",
+        resources=ResourceUsage(peak_vram_mb=11500, vram_total_mb=12227, peak_ram_mb=9000, ram_total_mb=32000),
+        findings=[AnalysisFinding("WARN", "resources", "Peak VRAM 94% (> 90%)", "11500/12227 MiB")],
+        metrics={"files_changed": 1},
+    )
+    EvidenceLocker(storage_dir=storage).save_run(manifest, patch_content="diff --git a/foo.py b/foo.py\n")
+    return storage
+
+
+def test_cli_describe_renders_analysis_report(tmp_path: Path, capsys):
+    storage = _analysis_run(tmp_path)
+    assert main(["describe", "run-an-cli", "--storage-dir", str(storage)]) == 0
+    out = capsys.readouterr().out
+    assert "--- PERFORMANCE & QUALITY ANALYSIS ---" in out
+    assert "[WARN]" in out
+    assert "Peak VRAM 94%" in out
+    assert "VRAM 11500/12227 MiB" in out
+
+
+def test_cli_review_prints_analysis_summary(tmp_path: Path, capsys):
+    storage = _analysis_run(tmp_path)
+    main(["review", "run-an-cli", "--reject", "--storage-dir", str(storage)])
+    out = capsys.readouterr().out
+    assert "PERFORMANCE & QUALITY ANALYSIS: [WARN]" in out
+    assert "Peak VRAM 94%" in out

@@ -13,8 +13,12 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from dark_factory.analysis.analyzer import analyze, collect_sources
+from dark_factory.analysis.resources import ResourceSampler
 from dark_factory.domain.errors import RunTimeoutError, WorkflowStateError
 from dark_factory.domain.types import (
+    AnalysisFinding,
+    AnalysisReport,
     EvidenceManifest,
     ModelTelemetry,
     PhaseTiming,
@@ -200,6 +204,7 @@ class DurableEngine:
         executions: list[StepExecution] = []
         healing_attempts = 0
         telemetry: ModelTelemetry | None = None
+        sampler = ResourceSampler()
         try:
             # 1. Create Sandbox
             update_state(RunStatus.CREATING_SANDBOX)
@@ -250,16 +255,21 @@ class DurableEngine:
             update_state(RunStatus.AGENT_RUNNING)
             try:
                 with _trace(manifest, "agent_and_verify"):
-                    passed, healing_attempts, executions, telemetry, repeated_failure_streak = (
-                        activity_execute_task_and_verify(
-                            sandbox=sandbox,
-                            harness=harness,
-                            spec=spec,
-                            status_callback=update_state,
-                            deadline=deadline,
-                            plan=plan,
+                    if not spec.skip_analysis:
+                        sampler.start()
+                    try:
+                        passed, healing_attempts, executions, telemetry, repeated_failure_streak = (
+                            activity_execute_task_and_verify(
+                                sandbox=sandbox,
+                                harness=harness,
+                                spec=spec,
+                                status_callback=update_state,
+                                deadline=deadline,
+                                plan=plan,
+                            )
                         )
-                    )
+                    finally:
+                        sampler.stop()
                 manifest.repeated_failure_streak = repeated_failure_streak
             except RunTimeoutError as timeout:
                 return finish_timed_out(timeout)
@@ -367,6 +377,22 @@ class DurableEngine:
                     timeout.healing_attempts += healing_attempts
                     timeout.telemetry = timeout.telemetry or telemetry
                     return finish_timed_out(timeout)
+
+            # 3.9. Advisory performance & quality analysis (verified, non-empty patches only; never alters status).
+            if final_status == RunStatus.AWAITING_REVIEW and not spec.skip_analysis:
+                with _trace(manifest, "analysis"):
+                    # Real run values; the manifest only receives them in activity_preserve_evidence below.
+                    manifest.model_telemetry = telemetry
+                    manifest.healing_attempts = healing_attempts
+                    try:
+                        manifest.analysis_report = analyze(
+                            manifest, diff, spec, sampler.usage(), sources=collect_sources(sandbox, diff)
+                        )
+                    except Exception as exc:
+                        manifest.analysis_report = AnalysisReport(
+                            summary="Analysis unavailable.",
+                            findings=[AnalysisFinding("INFO", "quality", "Analysis failed", str(exc))],
+                        )
 
             # 4. Preserve evidence BEFORE the durable status transition, so a crash can never leave a
             #    review-pending run without its evidence (recover() reconciles the opposite window).

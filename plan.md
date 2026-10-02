@@ -909,6 +909,27 @@ Autonomous coding agents often make architectural errors or write premature/hack
 - [ ] **Deferred (operator, 2026-10-01), review finding 9:** the planner's `target_files` are displayed but not merged into `TaskSpec.target_files`. Wire them up only with path validation against the sandbox root (reject absolute paths and `..`).
 
 
+## Phase 15: Performance & Quality Analysis (advisory, hardware-aware)
+
+**Status:** 15.1–15.5 implemented, gate green (263 tests, ruff, docs, changelog) on 2026-10-02; plan approved by operator. Review (fresh general-purpose subagent, 2026-10-02): 7 findings. Fixed test-first (red then green): #1 stale telemetry/healing in analysis, #2 header-lookalike content lines, #3 deleted/renamed files, #4 quoted paths, #7 1 MB source cap. #6 resolved by correcting spec (metric dropped). #5 not a defect (spec scopes sampling to agent_and_verify; mutation/audit calls are unsampled). Fixes verified by tests only, not re-reviewed independently. Note: the analysis step lives in `DurableEngine.execute_run` (calls `analyze`, `collect_sources`) rather than a separate `activity_analysis`; `--no-analysis` and the sampler are wired there.
+
+Goal: after green gates, report how the run used this machine (VRAM, GPU, RAM, tok/s, phase bottleneck) and the quality of the patch (size, complexity, missing tests). Deterministic, stdlib-only, no model calls, advisory.
+
+### 15.1 Domain & evidence
+- [x] Add `ResourceUsage`, `AnalysisFinding`, `AnalysisReport(summary, resources, findings, metrics)` to `dark_factory/domain/types.py` (+ export in `domain/__init__.py`); additive `EvidenceManifest.analysis_report`; `TaskSpec.skip_analysis: bool = False`. `EvidenceLocker.save_run` writes `analysis.md` (sanitised like `adversarial.md`); `load_manifest` backwards compatible. Tests: `tests/test_domain.py`, `tests/test_storage.py`.
+
+### 15.2 Resource sampler (`dark_factory/analysis/resources.py`)
+- [x] `ResourceSampler` (context manager, daemon thread, 2 s interval, argv-only `nvidia-smi`, `/proc/meminfo`), idempotent stop, never raises, `None` fields when unavailable. Tests (`tests/test_analysis_resources.py`): parsing with mocked subprocess/meminfo, missing `nvidia-smi`, failing sampler, stop twice.
+
+### 15.3 Analyzer (`dark_factory/analysis/analyzer.py`)
+- [x] `analyze(manifest, diff_text, spec, resources) -> AnalysisReport`: phase shares and bottleneck, tok/s, diff stats, AST complexity/length of changed functions, source-without-tests, hardware-fit findings with module-constant thresholds. Tests (`tests/test_analysis.py`): each rule fires and stays quiet at the boundary; unparseable file skipped; empty diff.
+
+### 15.4 Orchestrator integration
+- [x] `activity_analysis` in `activities.py`; `execute_run` starts the sampler around `agent_and_verify`, runs the analysis in a traced `analysis` phase on green non-empty runs (also after the mutation path), swallows exceptions, never changes status; `--no-analysis` CLI flag. Tests (`tests/test_orchestrator.py`, `tests/test_cli.py`): invoked on green, skipped on failure and with the flag, analysis crash leaves the run `AWAITING_REVIEW`, sampler stopped on timeout/cancel.
+
+### 15.5 Operator surfaces & docs
+- [x] `describe`/`review` print the analysis (WARN badges, resource line); dashboard run-detail card (`views.py`); `docs/` page and `CHANGELOG.md` `[Unreleased]`; full gate `python3 scripts/sdlc_check.py`. Tests: `tests/test_cli.py`, `tests/test_dashboard_views.py`.
+
 ## Adversarial review follow-up — 2026-10-02
 
 Status: P0 complete (2026-10-02), authorized by operator selection “0”. Local Ollama coder drafts integrated with review corrections; no cloud endpoint called. Files: `dark_factory/verification/runner.py`, `dark_factory/sandbox/{base,worktree}.py`, `tests/test_runner_integrity.py`, spec and mirror, verification docs, changelog and review evidence. Red proof: original ignored pytest exploit before implementation; all 12 parametrized shadows, restoration-failure and application-import tests with the restoration call temporarily absent, each `sdlc_check.py --red` exited 0 for the missing protection. Source restored immediately afterward. Green: full `python3 scripts/sdlc_check.py` exited 0 with authorized local sockets (236 passed, 6 local-engine tests deselected; lint, format, strict docs, changelog PASS). Independent fresh local Llama 3.1 8B review: no findings; prior Qwen review was repetitive and inconclusive, not a clean review. Limits: declared runner imports and pytest bootstrap modules only; arbitrary transitive imports and host isolation remain outside scope. Next: operator selects P1 or P2; no shipping authorization.

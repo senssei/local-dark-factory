@@ -256,6 +256,15 @@ class ExecutionPlan:
   - **Integrity**: The probe is LLM-authored code. After it passes (directly or after healing), `test_adversarial_probe.py` is removed and the baseline gates are re-run on the final tree; a failure there fails the run. A deadline hit during mutation yields `TIMED_OUT` with the probe removed and the diff and evidence preserved. Planner, auditor and mutator model calls are clamped to the remaining run deadline.
   - **Evidence**: Mutated test code is captured in `EvidenceManifest.adversarial_test_code` and saved as `adversarial_test.py` in the evidence locker.
 
+- **Performance & Quality Analysis (`dark_factory.analysis`)**:
+  - **Position**: After the deterministic gates pass and the patch is non-empty, before `AWAITING_REVIEW` (alongside the adversarial audit; zero model calls). Skipped with `--no-analysis` (`TaskSpec.skip_analysis`).
+  - **Resource sampling**: a daemon thread samples, every 2 s while the run is in `agent_and_verify`, GPU VRAM used/total and GPU utilization (one `nvidia-smi` argv call; absent binary or failure means "unavailable", never an error) and host RAM used/total (`/proc/meminfo`; unavailable off Linux). The sampler is stopped and joined on every exit path and must never raise into the run. Result: `ResourceUsage(peak_vram_mb, vram_total_mb, avg_gpu_util_pct, peak_ram_mb, ram_total_mb, samples)`; fields are `None` when unavailable.
+  - **Performance analysis** (from evidence already collected): per-phase share of wall time and the dominant phase; model throughput (`tokens_per_sec`) and healing attempts, taken from the run's real telemetry and healing count.
+  - **Quality analysis** (stdlib only, on the diff): files/lines added and removed; for added or modified Python functions, `ast`-based cyclomatic complexity and length; whether source files changed without any test file in the patch. Unparseable files, and files over 1 MB, are skipped, never fatal. Diff parsing follows the `@@` hunk line counts, so content lines that look like `---`/`+++` headers are not mistaken for files; deleted and renamed files count as changed.
+  - **Hardware fit rules** (thresholds are module constants, defaults for this workstation, RTX 5070 12 GB / 32 GB RAM): peak VRAM > 90 % of total, peak RAM > 85 %, throughput < 10 tok/s, healing attempts >= `max_healing_attempts`, function complexity > 10, function length > 60 lines, source changed without tests. Each yields an `AnalysisFinding(severity, category, summary, details)` with category `performance`, `resources` or `quality` and severity `INFO` or `WARN`.
+  - **Advisory only**: never changes `final_status`. Any analysis exception is swallowed into a single `INFO` finding; the run is unaffected.
+  - **Evidence**: `EvidenceManifest.analysis_report` (additive, optional), `.factory/runs/<RUN_ID>/analysis.md`; rendered by `describe`, `review` and the dashboard run detail.
+
 ---
 
 ### 3.4. Durable Workflow Engine (`dark_factory.orchestrator`)

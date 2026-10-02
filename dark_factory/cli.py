@@ -13,7 +13,7 @@ from pathlib import Path
 import requests
 
 from dark_factory.domain.errors import RunNotFoundError
-from dark_factory.domain.types import RunStatus, TaskSpec, VerificationStep
+from dark_factory.domain.types import EvidenceManifest, RunStatus, TaskSpec, VerificationStep
 from dark_factory.eval.runner import format_summary, run_eval, save_report
 from dark_factory.eval.scenarios import SCENARIOS
 from dark_factory.harness.llm_text import clean_text
@@ -122,6 +122,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         allow_gate_edits=args.allow_gate_edits,
         timeout_minutes=args.timeout_minutes,
         skip_adversarial=args.no_adversarial,
+        skip_analysis=args.no_analysis,
         mutate_adversarial=args.mutate_adversarial,
         planner_model=args.planner_model,
         skip_plan=args.no_plan,
@@ -281,6 +282,8 @@ def cmd_describe(args: argparse.Namespace) -> int:
     else:
         print("No active test mutation recorded.")
 
+    _print_analysis(manifest, verbose=True)
+
     print("\n--- UNIFIED DIFF ---")
     if patch.strip():
         print(clean_text(patch))
@@ -288,6 +291,29 @@ def cmd_describe(args: argparse.Namespace) -> int:
         print("(No diff generated)")
 
     return 0
+
+
+def _print_analysis(manifest: EvidenceManifest, *, verbose: bool) -> None:
+    """Print the advisory performance & quality analysis; `verbose` adds resources, metrics and details."""
+    report = manifest.analysis_report
+    if report is None:
+        return
+    if verbose:
+        print("\n--- PERFORMANCE & QUALITY ANALYSIS ---")
+        print(f"Status:  [{report.badge}]")
+    else:
+        print(f"--- PERFORMANCE & QUALITY ANALYSIS: [{report.badge}] ---")
+    print(f"Summary: {clean_text(report.summary)}")
+    if verbose:
+        res = report.resources
+        print(f"  VRAM {res.peak_vram_mb}/{res.vram_total_mb} MiB, GPU util {res.avg_gpu_util_pct}%")
+        print(f"  RAM  {res.peak_ram_mb}/{res.ram_total_mb} MiB ({res.samples} samples)")
+        for key, value in report.metrics.items():
+            print(f"  {clean_text(str(key))}: {clean_text(str(value))}")
+    for f in report.findings:
+        print(f"  - [{clean_text(f.severity)}] ({clean_text(f.category)}) {clean_text(f.summary)}")
+        if verbose and f.details:
+            print(f"    Details: {clean_text(f.details)}")
 
 
 def cmd_review(args: argparse.Namespace) -> int:
@@ -308,6 +334,8 @@ def cmd_review(args: argparse.Namespace) -> int:
             print("Findings:")
             for f in adv.findings:
                 print(f"  - [{clean_text(f.severity)}] ({clean_text(f.category)}) {clean_text(f.summary)}")
+
+    _print_analysis(manifest, verbose=False)
 
     if manifest.adversarial_test_code:
         print("--- ADVERSARIAL MUTATION: hostile probe synthesized (see `describe` for the code) ---")
@@ -463,6 +491,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_run.add_argument(
         "--no-adversarial", action="store_true", help="Skip post-verification adversarial red-team audit"
+    )
+    p_run.add_argument(
+        "--no-analysis", action="store_true", help="Skip the post-verification performance & quality analysis"
     )
     p_run.add_argument(
         "--mutate-adversarial",

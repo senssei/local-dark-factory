@@ -222,6 +222,33 @@ def render_run_detail(manifest: EvidenceManifest, patch: str) -> str:
             f"<pre><code>{escape(manifest.adversarial_test_code)}</code></pre>"
         )
 
+    analysis_html = ""
+    if manifest.analysis_report:
+        rep = manifest.analysis_report
+        res = rep.resources
+        rows = []
+        for f in rep.findings:
+            sev_cls = f"badge-{escape(f.severity.lower(), quote=True)}"
+            details_html = f"<br><small>{escape(f.details)}</small>" if f.details else ""
+            rows.append(
+                f'<tr><td><span class="{sev_cls}">{escape(f.severity)}</span></td>'
+                f"<td><code>{escape(f.category)}</code></td><td><b>{escape(f.summary)}</b>{details_html}</td></tr>"
+            )
+        table = (
+            "<table><thead><tr><th>Severity</th><th>Category</th><th>Details</th></tr></thead>"
+            f"<tbody>{''.join(rows)}</tbody></table>"
+            if rows
+            else "<p>No findings.</p>"
+        )
+        metrics = "".join(f"<li>{escape(str(k))}: {escape(str(v))}</li>" for k, v in rep.metrics.items())
+        analysis_html = (
+            f'<h2>Performance &amp; Quality Analysis <span class="badge-{rep.badge.lower()}">{rep.badge}</span></h2>'
+            f"<p>{escape(rep.summary)}</p>"
+            f"<ul><li>VRAM: {res.peak_vram_mb} / {res.vram_total_mb} MiB (GPU util {res.avg_gpu_util_pct}%)</li>"
+            f"<li>RAM: {res.peak_ram_mb} / {res.ram_total_mb} MiB ({res.samples} samples)</li>{metrics}</ul>"
+            f"{table}"
+        )
+
     timings_html = ""
     if manifest.phase_timings:
         rows = [f"<li>{escape(pt.phase)}: {pt.duration_sec:.2f}s</li>" for pt in manifest.phase_timings]
@@ -236,6 +263,7 @@ def render_run_detail(manifest: EvidenceManifest, patch: str) -> str:
         f"<h2>Verification Gates</h2>{gates_html}"
         f"{adv_html}"
         f"{mutation_html}"
+        f"{analysis_html}"
         f"{timings_html}"
         f"<h2>Unified Diff</h2>{diff_html}"
     )

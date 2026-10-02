@@ -303,3 +303,25 @@ def test_render_run_detail_hides_active_mutation_when_none():
     manifest = _manifest(adversarial_test_code=None)
     html = render_run_detail(manifest, "")
     assert "Active Adversarial Mutation" not in html
+
+
+def test_render_run_detail_shows_analysis_card_and_escapes():
+    from dark_factory.domain.types import AnalysisFinding, AnalysisReport, ResourceUsage
+
+    manifest = _manifest(
+        analysis_report=AnalysisReport(
+            summary="1 warning(s)",
+            resources=ResourceUsage(peak_vram_mb=11500, vram_total_mb=12227, samples=4),
+            findings=[AnalysisFinding("WARN", "resources", "Peak VRAM 94%", "<b>tight</b>")],
+            metrics={"files_changed": 2},
+        )
+    )
+    html = render_run_detail(manifest, "")
+    assert "Performance &amp; Quality Analysis" in html
+    assert "Peak VRAM 94%" in html
+    assert "11500" in html
+    assert "<b>tight</b>" not in html and "&lt;b&gt;tight&lt;/b&gt;" in html
+
+
+def test_render_run_detail_hides_analysis_card_when_none():
+    assert "Quality Analysis" not in render_run_detail(_manifest(analysis_report=None), "")

@@ -73,3 +73,7 @@ Independent reviewer: fresh stateless local Ollama `llama3.1:8b` session, suppli
 Prior fresh local `qwen2.5-coder:7b` review repeated vague high-severity restoration claims until the output limit; no reproducible scenario was supplied. It was treated as inconclusive, not accepted as a clean review. The ignored-shadow cases and explicit-protection cases pass on real worktrees; restoration commands check their exit codes and residual files. No actionable finding remained after the separate Llama review.
 
 Verification: `python3 scripts/sdlc_check.py` exited 0 with authorized local socket access: 236 passed, 6 local-engine tests deselected; lint, format, strict docs and changelog PASS. Red-first evidence covers the original bypass, all twelve shadow variants, restoration failure and application imports. The seventeen P0 regressions pass. Scope limits: arbitrary transitive imports, shell-script runners and OS process isolation remain outside this fix. No commits, pushes or releases.
+
+## Phase 15 performance & quality analysis — 2026-10-02
+
+Independent reviewer: fresh general-purpose Claude subagent given the spec, plan and diff only. Seven findings (1 HIGH, 3 MEDIUM, 3 LOW); five fixed test-first, one spec correction, one not a defect (sampling scope matches spec). Fixes were verified by tests, not re-reviewed independently. Gate: `python3 scripts/sdlc_check.py` exited 0.

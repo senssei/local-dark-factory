@@ -134,3 +134,23 @@ def test_adversarial_mutation_contracts():
 
     manifest = EvidenceManifest.create(run_id="run-mut-01", repo_path="/tmp/repo", base_rev="abc1234")
     assert manifest.adversarial_test_code is None
+
+
+def test_analysis_contracts():
+    from dark_factory.domain.types import AnalysisFinding, AnalysisReport, ResourceUsage
+
+    task = TaskSpec(repo_path="/tmp/repo", task_prompt="Fix boundary check")
+    assert task.skip_analysis is False
+
+    manifest = EvidenceManifest.create(run_id="run-an-01", repo_path="/tmp/repo", base_rev="abc1234")
+    assert manifest.analysis_report is None
+
+    usage = ResourceUsage()
+    assert usage.peak_vram_mb is None and usage.samples == 0
+
+    clean = AnalysisReport(summary="ok", resources=usage)
+    assert clean.badge == "PASS"
+    warn = AnalysisReport(summary="x", findings=[AnalysisFinding("WARN", "resources", "VRAM high")])
+    assert warn.badge == "WARN"
+    info = AnalysisReport(summary="x", findings=[AnalysisFinding("INFO", "quality", "note")])
+    assert info.badge == "PASS"

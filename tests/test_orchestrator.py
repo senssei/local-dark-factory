@@ -642,6 +642,7 @@ def test_execute_run_records_phase_timings(mock_repo: Path, tmp_path: Path):
         "agent_and_verify",
         "diff_extract",
         "adversarial_audit",
+        "analysis",
         "evidence_preserve",
     }
     assert all(pt.duration_sec >= 0 for pt in manifest.phase_timings)
@@ -1176,3 +1177,87 @@ def test_r19_probe_tampering_is_reported_as_reverification_failure(mock_repo: Pa
     assert "re-verification" in manifest.operator_notes
     ids = [ex.step_id for ex in manifest.verification_results]
     assert ids[-1] == "pytest:reverify"
+
+
+def test_analysis_runs_on_green_run_and_records_report(mock_repo: Path, tmp_path: Path):
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(repo_path=str(mock_repo), task_prompt="fix calc add function", verification_steps=_passing_gate())
+    manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-an-green")
+
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert manifest.analysis_report is not None
+    assert manifest.analysis_report.metrics["files_changed"] == 1
+    assert manifest.analysis_report.resources.samples >= 1
+    # Telemetry and healing counts must be real run values, not the manifest's pre-preserve defaults.
+    assert manifest.analysis_report.metrics["tokens_per_sec"] == 45.0
+    assert manifest.analysis_report.metrics["healing_attempts"] == manifest.healing_attempts
+    assert "analysis" in {pt.phase for pt in manifest.phase_timings}
+    assert (tmp_path / ".factory" / "runs" / "run-an-green" / "analysis.md").exists()
+
+
+def test_analysis_skipped_with_flag_and_on_failed_runs(mock_repo: Path, tmp_path: Path):
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    skipped = engine.execute_run(
+        spec=TaskSpec(
+            repo_path=str(mock_repo),
+            task_prompt="fix calc add function",
+            verification_steps=_passing_gate(),
+            skip_analysis=True,
+        ),
+        harness=MockRepairHarness(),
+        run_id="run-an-skip",
+    )
+    assert skipped.analysis_report is None
+    assert "analysis" not in {pt.phase for pt in skipped.phase_timings}
+
+    class NoOpHarness(AgentHarness):
+        def execute_task(self, sandbox, task_prompt, target_files=None):
+            return HarnessResult(success=True, modified_files=[])
+
+    failed = engine.execute_run(
+        spec=TaskSpec(repo_path=str(mock_repo), task_prompt="noop", verification_steps=_passing_gate()),
+        harness=NoOpHarness(),
+        run_id="run-an-empty",
+    )
+    assert failed.status == RunStatus.FAILED
+    assert failed.analysis_report is None
+
+
+def test_analysis_crash_never_changes_run_status(mock_repo: Path, tmp_path: Path, monkeypatch):
+    from dark_factory.orchestrator import engine as engine_mod
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("analysis exploded")
+
+    monkeypatch.setattr(engine_mod, "analyze", boom)
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(repo_path=str(mock_repo), task_prompt="fix calc add function", verification_steps=_passing_gate())
+    manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-an-crash")
+
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert manifest.analysis_report is not None
+    assert manifest.analysis_report.findings[0].severity == "INFO"
+    assert "analysis exploded" in manifest.analysis_report.findings[0].details
+
+
+def test_sampler_stopped_on_every_exit_path(mock_repo: Path, tmp_path: Path, monkeypatch):
+    from dark_factory.analysis import resources
+
+    stopped: list[bool] = []
+    original_stop = resources.ResourceSampler.stop
+
+    def tracking_stop(self):
+        original_stop(self)
+        stopped.append(True)
+
+    monkeypatch.setattr(resources.ResourceSampler, "stop", tracking_stop)
+
+    class InterruptHarness(AgentHarness):
+        def execute_task(self, sandbox, task_prompt, target_files=None):
+            raise KeyboardInterrupt
+
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(repo_path=str(mock_repo), task_prompt="x", verification_steps=_passing_gate())
+    with pytest.raises(KeyboardInterrupt):
+        engine.execute_run(spec=spec, harness=InterruptHarness(), run_id="run-an-cancel")
+    assert stopped

@@ -26,6 +26,7 @@ All notable changes to this project are documented in this file. The format foll
 - A run whose gates pass but whose patch is empty now ends `FAILED` (`empty_patch`) instead of `AWAITING_REVIEW`.
 
 ### Added
+- Advisory performance & quality analysis after green gates (`dark_factory.analysis`): GPU VRAM/utilization and RAM sampling, phase bottleneck, tok/s, patch size, function complexity and missing-test checks with thresholds for this workstation. Recorded in `analysis.md` / `manifest.json`, shown by `describe`, `review` and the dashboard; skip with `--no-analysis`.
 - `TaskSpec.timeout_minutes` is enforced as a run deadline (`TIMED_OUT`); `RunTimeoutError` carries partial evidence.
 - `KeyboardInterrupt` / `SystemExit` end the run `CANCELLED` with evidence saved and the sandbox cleaned up.
 - Evidence is persisted before the `AWAITING_REVIEW` transition; `recover()` reconciles a crash in that window from the on-disk manifest.
