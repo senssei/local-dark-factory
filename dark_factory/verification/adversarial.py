@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dark_factory.domain.types import AdversarialFinding, AdversarialReport
-from dark_factory.harness.llm_text import clean_text, extract_json_object, fence
+from dark_factory.harness.llm_text import cap_text, clean_text, extract_json_object, fence
 from dark_factory.harness.local_coder import LocalCoderHarness
 
 _SEVERITIES = ("INFO", "WARN", "CRITICAL")
+MAX_AUDIT_PATCH_CHARS = 12000  # about 4000 estimated tokens; keeps the audit prompt inside the default window
 
 _ADVERSARIAL_SYSTEM_PROMPT = """You are the Lead Adversarial Auditor (Red Team) in the Sovereign Dark Factory.
 Your job is to aggressively audit a proposed code patch and identify reasons why it should NOT be approved.
@@ -63,11 +64,22 @@ class AdversarialAuditor:
             )
 
         system_prompt = _ADVERSARIAL_SYSTEM_PROMPT
-        user_prompt = self._build_user_prompt(task_prompt, patch, gate_summary)
+        audited, truncated = cap_text(patch, MAX_AUDIT_PATCH_CHARS)
+        user_prompt = self._build_user_prompt(task_prompt, audited, gate_summary)
 
         try:
             raw_text, _telemetry = self.harness._call_model(system_prompt, user_prompt)
-            return self._parse_response(raw_text)
+            report = self._parse_response(raw_text)
+            if truncated:
+                report.findings.append(
+                    AdversarialFinding(
+                        severity="INFO",
+                        category="regression",
+                        summary="Diff truncated for the audit",
+                        details=f"Only about {MAX_AUDIT_PATCH_CHARS} of {len(patch)} patch characters fit the model's window.",
+                    )
+                )
+            return report
         except Exception as exc:
             return AdversarialReport(
                 passed=False,

@@ -59,6 +59,20 @@ def extract_code_block(raw: str, lang: str = "") -> str:
     return text
 
 
+def cap_text(text: str, max_chars: int, keep_tail: int = 0) -> tuple[str, bool]:
+    """Bound `text` to about `max_chars`, keeping its head and its last `keep_tail` characters.
+
+    Returns (possibly shortened text, whether it was shortened). The cut is marked in the text so the
+    model knows it is not seeing everything.
+    """
+    if len(text) <= max_chars:
+        return text, False
+    tail = text[len(text) - keep_tail :] if keep_tail else ""
+    head = text[: max(0, max_chars - keep_tail)]
+    omitted = len(text) - len(head) - len(tail)
+    return f"{head}\n[... {omitted} characters truncated ...]\n{tail}", True
+
+
 def fence(text: str, lang: str = "") -> str:
     """Wrap text in a code fence that no backtick run inside the text can close."""
     longest = max((len(m) for m in re.findall(r"`+", text)), default=0)

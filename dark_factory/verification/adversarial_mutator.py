@@ -5,10 +5,12 @@ from __future__ import annotations
 import ast
 import logging
 
-from dark_factory.harness.llm_text import extract_code_block, fence
+from dark_factory.harness.llm_text import cap_text, extract_code_block, fence
 from dark_factory.harness.local_coder import LocalCoderHarness
 
 logger = logging.getLogger(__name__)
+
+MAX_PROBE_PATCH_CHARS = 12000  # about 4000 estimated tokens; keeps the prompt inside the default window
 
 _MUTATOR_SYSTEM_PROMPT = """You are a Hostile Adversarial QA Engineer / Red Team tester in the Sovereign Dark Factory.
 Your job is to synthesize executable Python pytest unit tests that actively stress-test and probe a proposed code patch.
@@ -48,7 +50,7 @@ class AdversarialMutator:
             return None
 
         system_prompt = _MUTATOR_SYSTEM_PROMPT
-        user_prompt = self._build_user_prompt(task_prompt, patch, context)
+        user_prompt = self._build_user_prompt(task_prompt, cap_text(patch, MAX_PROBE_PATCH_CHARS)[0], context)
 
         try:
             raw_text, _telemetry = self.harness._call_model(system_prompt, user_prompt)

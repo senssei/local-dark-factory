@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Fixed (Phase 10.15 context window)
+- Ollama silently truncated any prompt over its context window (4096 tokens here) to about half, dropping the file-format rules, so the model replied in prose. The harness now sizes `num_ctx` per call (max 8192 by default, which keeps the 14B model fully in 12 GB VRAM), fails before the call with a `--target-file` hint when the prompt cannot fit, and reports a probable truncation as a failed step. Planner, auditor and mutator calls are sized the same way.
+- Self-healing no longer builds repair prompts from an unbounded gate dump (capped at 6000 characters, head and tail), and the auditor and mutator cap the diff they send, so large inputs do not trip the new pre-flight. A harness failure now leaves its reason in `verification_results` and the operator notes.
+- Auto-detected context files are inlined only within a token budget (half of `max_num_ctx`); larger ones become one-line stubs instead of flooding the prompt.
+
 ### Fixed (Phase 14.5 review remediation)
 - Adversarial audit: severity allowlisted (dashboard XSS), verdict derived from findings, `CRITICAL` overall badge, LLM text sanitised in CLI output and evidence files, tolerant manifest loading.
 - Planner/auditor/mutator: `<think>` blocks and prose around JSON handled, field types validated, prompt fences cannot be closed by diff content, model calls clamped to the run deadline.
@@ -26,6 +31,7 @@ All notable changes to this project are documented in this file. The format foll
 - A run whose gates pass but whose patch is empty now ends `FAILED` (`empty_patch`) instead of `AWAITING_REVIEW`.
 
 ### Added
+- `dark-factory run --target-file PATH` (repeatable) and `TaskSpec.target_files`: the files the agent edits are inlined in full as its only context, on every attempt including self-healing. `ModelTelemetry.num_ctx` records the context window requested from Ollama.
 - Advisory performance & quality analysis after green gates (`dark_factory.analysis`): GPU VRAM/utilization and RAM sampling, phase bottleneck, tok/s, patch size, function complexity and missing-test checks with thresholds for this workstation. Recorded in `analysis.md` / `manifest.json`, shown by `describe`, `review` and the dashboard; skip with `--no-analysis`.
 - `TaskSpec.timeout_minutes` is enforced as a run deadline (`TIMED_OUT`); `RunTimeoutError` carries partial evidence.
 - `KeyboardInterrupt` / `SystemExit` end the run `CANCELLED` with evidence saved and the sandbox cleaned up.

@@ -284,7 +284,11 @@ class DurableEngine:
                 final_payload = {"reason": "empty_patch"}
                 manifest.operator_notes = "Verification passed but the agent produced no changes (empty patch)."
             elif not passed:
-                if repeated_failure_streak >= 1:
+                if executions and executions[-1].step_id == "harness":
+                    manifest.operator_notes = (
+                        f"The agent harness failed after {healing_attempts} attempt(s): {executions[-1].stderr[:300]}"
+                    )
+                elif repeated_failure_streak >= 1:
                     manifest.operator_notes = (
                         f"Verification failed after exhausting {healing_attempts} healing attempt(s); the "
                         f"same failure repeated identically for the last {repeated_failure_streak + 1} "

@@ -171,6 +171,7 @@ def activity_execute_task_and_verify(
         harness=harness,
         initial_prompt=initial_prompt,
         verification_runner=runner,
+        target_files=spec.target_files or None,
         status_callback=status_callback,
         deadline=deadline,
     )
@@ -535,6 +536,7 @@ def activity_adversarial_mutation(
                 harness=harness,
                 initial_prompt=repair_prompt,
                 verification_runner=runner,
+                target_files=spec.target_files or None,
                 status_callback=status_callback,
                 deadline=deadline,
             )

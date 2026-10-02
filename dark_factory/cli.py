@@ -126,6 +126,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         mutate_adversarial=args.mutate_adversarial,
         planner_model=args.planner_model,
         skip_plan=args.no_plan,
+        target_files=list(args.target_file or []),
     )
 
     print("🚀 Sovereign Dark Factory submitting task...")
@@ -502,6 +503,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_run.add_argument(
         "--planner-model", default=None, help="Local model for reasoning and task planning (default: same as --model)"
+    )
+    p_run.add_argument(
+        "--target-file",
+        action="append",
+        metavar="PATH",
+        help="File the agent is to edit (repeatable); inlined in full as the only context instead of auto-detection",
     )
     p_run.add_argument("--no-plan", action="store_true", help="Skip pre-execution reasoning and planning session")
     p_run.set_defaults(func=cmd_run)

@@ -52,6 +52,7 @@ dark-factory run [OPTIONS] --task "TASK DESCRIPTION"
 - `--base-rev REV`: Git commit or branch to branch worktree from (default: `HEAD`).
 - `--model NAME`: Local model name (default: `qwen2.5-coder:14b`).
 - `--test-cmd CMD`: Command to run for verification. Can be specified multiple times.
+- `--target-file PATH`: File the agent is to edit (repeatable). Exactly these files are inlined in full as the model's context and prompt-text auto-detection is switched off. Without it, files named in the task are auto-detected and inlined only while they fit a token budget; larger ones are listed as stubs. A path that does not exist yet is a file to create.
 - `--retries INT`: Maximum self-healing attempts (default: `3`).
 - `--no-verify`: Allow run without verification gates (**DANGEROUS**).
 - `--allow-gate-edits`: Allow agent to author or modify test files/gates.

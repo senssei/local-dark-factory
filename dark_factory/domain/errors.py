@@ -21,6 +21,10 @@ class HarnessError(DarkFactoryError):
     """Raised when an agent harness fails to invoke or communicate with local models."""
 
 
+class PromptTooLargeError(HarnessError):
+    """Raised before any model call when the prompt plus output reserve exceeds `max_num_ctx`."""
+
+
 class LocalEngineOfflineError(HarnessError):
     """Raised when Ollama or Prism are unreachable."""
 

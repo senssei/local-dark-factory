@@ -228,6 +228,28 @@ def test_cli_run_no_analysis_flag_sets_skip_analysis(tmp_path: Path, monkeypatch
     assert [s.skip_analysis for s in captured_specs] == [True, False]
 
 
+def test_cli_run_passes_target_files(tmp_path: Path, monkeypatch):
+    from dark_factory.domain.types import EvidenceManifest, RunStatus
+    from dark_factory.orchestrator import DurableEngine
+
+    captured = []
+
+    def mock_execute_run(self, spec, harness=None, run_id=None, status_callback=None):
+        captured.append(spec)
+        manifest = EvidenceManifest.create(run_id="run-test", repo_path=spec.repo_path, base_rev=spec.base_rev)
+        manifest.status = RunStatus.AWAITING_REVIEW
+        return manifest
+
+    monkeypatch.setattr(DurableEngine, "execute_run", mock_execute_run)
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "test.sh").write_text("#!/bin/sh\nexit 0\n")
+
+    assert main(["run", "--repo", str(repo), "--task", "Foo", "--target-file", "a.py", "--target-file", "b/c.py"]) == 0
+    assert main(["run", "--repo", str(repo), "--task", "Foo"]) == 0
+    assert [s.target_files for s in captured] == [["a.py", "b/c.py"], []]
+
+
 def test_cli_describe_renders_adversarial_report(tmp_path: Path, capsys):
     from dark_factory.domain.types import AdversarialFinding, AdversarialReport, EvidenceManifest, RunStatus
     from dark_factory.storage import EvidenceLocker

@@ -4,6 +4,28 @@ This plan defines the step-by-step development phases for **`local-dark-factory`
 
 ---
 
+## Priorities (re-ranked 2026-10-02; release deprioritized)
+
+Order of the open work, highest first. Verified against the code on 2026-10-02 (each "open" below was confirmed missing).
+Release is **lowest priority and on hold**: no version bump, tag or PyPI publish until the operator gives an explicit go.
+
+1. **§10.15 context window** (DONE 2026-10-02, review pending; was open: no `num_ctx` in `harness/local_coder.py`, no `TaskSpec.target_files`). A real defect: Ollama's
+   2048-token default silently truncates every prompt over ~2k tokens, including self-healing prompts and the planner/auditor/mutator
+   calls (14.5 finding 7). It also distorts the tok/s and VRAM numbers that Phase 15 reports. Needs operator approval of its plan first.
+2. **Adversarial follow-up P1** (open: `_parse_response` does no type checks): strict audit schema, small and test-first.
+3. **Adversarial follow-up P2**: align user-facing sandbox claims with the documented isolation limit (docs only).
+4. **Phase 15 threshold tuning**: run `dark-factory eval` / the §10.15 step 6 real-model runs once, then adjust the constants in
+   `dark_factory/analysis/analyzer.py`. Defaults are unmeasured.
+5. **14.5 finding 9** (planner `target_files` into `TaskSpec`): depends on §10.15 item 3.
+6. **§10.5 backlog**: `patch_sha256` in the `events` table (today `review_run` verifies it only `if manifest.patch_sha256`),
+   coverage on `local_coder.py`/`cli.py`, gate discovery against `--base-rev` (today `cmd_run` inspects the working tree).
+7. **Phase 11 / §10.3 dead `TaskSpec` fields**: forward-looking, needs an explicit decision before any work.
+8. **Release (deprioritized, on hold):** §9.4 PyPI and §10.4 version bump/tag. Note that §9.4 is stale: `v0.1.0` is already tagged and
+   released on GitHub, and Phases 13-15 are new features, so the next version is a decision for the operator (likely `0.2.0`, which is
+   also when the dead `TaskSpec` fields are due for a decision).
+
+---
+
 ## Phase 1: Foundation & Domain Contracts
 - [x] Initialize repository environment: `pyproject.toml`, `requirements.txt`, `.gitignore`.
 - [x] Define immutable domain contracts in `dark_factory/domain/types.py`:
@@ -152,7 +174,7 @@ This plan defines the step-by-step development phases for **`local-dark-factory`
 - [x] Tag and publish release `v0.1.0` with assets on GitHub.
 
 ### 9.4 PyPI Publication
-> **ON HOLD (operator decision):** no release for now. Resume after Phase 10 review; first PyPI release will carry the Phase 10 fixes.
+> **ON HOLD, DEPRIORITIZED (operator decision, re-ranked 2026-10-02):** no release for now; lowest priority, see "Priorities". Stale text: `v0.1.0` is already tagged on GitHub and the next version is undecided.
 
 - [ ] Configure PyPI Trusted Publisher for repository `senssei/local-dark-factory`.
 - [ ] Publish initial release `v0.1.0` to PyPI.
@@ -198,7 +220,7 @@ Release is **on hold** (operator decision): Phase 9.4 (PyPI) and the version bum
 ### 10.4 Release Hygiene
 - [x] Update `spec.md` (§2, §3.1, §3.2, §3.3, §3.4) and `CHANGELOG.md` (`[Unreleased]`; renamed to `[0.1.1]` at release).
 - [x] CI: add `ruff format --check` and `mkdocs build --strict` jobs.
-- [ ] **On hold:** bump version (`pyproject.toml`, `dark_factory/__init__.py`), rename `[Unreleased]` in `CHANGELOG.md`, tag. Operator gate; do not start without an explicit go.
+- [ ] **On hold, lowest priority (see "Priorities"):** bump version (`pyproject.toml`, `dark_factory/__init__.py`), rename `[Unreleased]` in `CHANGELOG.md`, tag. Operator gate; do not start without an explicit go.
 
 ### 10.5 Backlog (not in the next release)
 - [ ] Record `patch_sha256` in the SQLite `events` table and verify it unconditionally in `review_run`
@@ -317,7 +339,7 @@ grep-able decisions (red first); the remaining items are prose proven by `mkdocs
 - [x] **`detect_default_gate_paths()` can't tell a lint/type-check gate's *target* file from a *test/config*
   file** — found in 10.12, **fixed in 10.13** (see below), no longer open.
 
-- [ ] **(tracked and scheduled in §10.15)** **`LocalCoderHarness._build_context()` auto-detects and inlines *any* file path mentioned in the task
+- [x] **(delivered in §10.15, 2026-10-02)** **`LocalCoderHarness._build_context()` auto-detects and inlines *any* file path mentioned in the task
   prompt, in full, with no size cap — including files mentioned only for reference/explanation, not files
   the agent is meant to edit.** Found 2026-09-29 during real dogfooding on this repo itself (not a
   synthetic eval scenario): a task asking to update `docs/cli.md`'s `recover` section, whose prompt also
@@ -583,8 +605,10 @@ re-derive a similarly-flawed fix from scratch rather than trying something quali
 
 ## Phase 10.15: Context Window Sizing, Truncation Detection & Explicit Target Files
 
-**Status:** plan (redesigned twice; 2026-09-30 redesign around `num_ctx` after measurement) awaiting operator approval;
-nothing implemented. Reverses the 2026-09-29 "document only" decision for the `_build_context` bug in §10.7.
+**Status:** items 0-6 implemented 2026-10-02 (operator "jedziesz"); gate green (289 tests). Review (fresh general-purpose subagent): 6 findings (1 HIGH, 2 MEDIUM, 3 LOW). Fixed test-first: #1 uncapped gate output in the repair prompt (now 6000 chars, head+tail), #2 stale failure streak and misleading note after a harness failure, #3 auditor/mutator pre-flight on diffs over ~21 KB (diff capped at 12000 chars; auditor adds an INFO finding), #4 truncation heuristic now only explains a reply without `file:` blocks, #5 `max_num_ctx` is a true ceiling. #6 not changed: a rejected `--target-file` path already renders as an "unreadable" stub; the ~12 KB single-file limit is inherent to whole-file output and is documented. Fixes verified by tests only, not re-reviewed independently. Reverses the 2026-09-29 "document only" decision for the `_build_context` bug in §10.7.
+**Correction found by the 2026-10-02 measurement (Ollama 0.34):** the default window here is **4096**, not 2048, and a prompt larger than the window is not cut to the window but to about **half** of it (`prompt_eval_count` = `num_ctx/2 + 2`: 2050 of 4096, 4098 of 8192). The 2050 in the root-cause text below is that half-window signature. So the planned truncation test (`prompt_eval_count >= num_ctx - 16`) would never have fired; the harness now uses the half-window signature (and the full-window one). The detection is a heuristic; the pre-flight estimate is the primary defense.
+**Item 0 measurement** (`qwen2.5-coder:14b`, RTX 5070 12 GB, prompt `docs/cli.md` + `harness/local_coder.py` = 4823 real tokens, 3 runs each): default/4096 -> truncated to 2050, 7-16 s, 9.5/9.5 GB, `file:` block 1-2 of 3; **8192 -> 4823 tokens, 33 s, 10.3/10.3 GB in VRAM, 3/3**; 12288 -> 77 s, 10.5/11.6 GB (~1.1 GB on CPU), 3/3; 16384 -> 137 s, 10.2/12.4 GB (~2.2 GB on CPU), 3/3. Default `max_num_ctx` = **8192**. Estimate `len/3` overshoots by ~46% on this content (7065 vs 4823), as intended.
+**Item 6 (real model through the CLI, scratch clone):** (a) no `--target-file`: `engine.py` stubbed, correct one-line edit to `docs/cli.md`, `num_ctx` 4869; (b) `--target-file docs/cli.md`: correct edit; (c) two large target files: no model call, `harness` step with "Prompt needs about 33473 tokens ... max_num_ctx is 8192. Narrow the context with --target-file". The real run also found two wiring defects the mocks missed (fixed test-first): healing's aggregated telemetry dropped `num_ctx`, and a harness failure left no reason in the evidence (now a `harness` step in `verification_results`).
 
 **Root cause (measured 2026-09-30, real `qwen2.5-coder:14b`, this host):** not "too many files confuse the model". Ollama's
 default context window is 2048 tokens and it silently drops the start of a longer prompt. The incident prompt (`docs/cli.md`
@@ -596,12 +620,12 @@ VRAM on the 12 GB card (~2 GB on CPU), and the run took 141 s vs ~40 s. The earl
 is ~3.5k tokens, still over 2048) and is dropped. Also: `target_files` exists on `AgentHarness.execute_task` and
 `SelfHealingLoop.run_loop` but `TaskSpec`, the CLI and `activity_run_verification_loop` never supply it.
 
-- [ ] **0. Measure before choosing the ceiling (manual, no code).** For the incident prompt at `num_ctx` 4096, 8192, 12288,
+- [x] **0. Measure before choosing the ceiling (manual, no code).** For the incident prompt at `num_ctx` 4096, 8192, 12288,
   16384: `prompt_eval_count`, peak VRAM vs CPU spill (`/api/ps`), seconds, and whether a `file:` block comes back (3 runs each).
   Record the table in this phase's `Status:` and set the default `max_num_ctx` from it (constraint: no more than a small CPU
   spill on the operator's 12 GB card). Scratch script: `ctx_experiment.py` in the session scratchpad, to be promoted into
   `dark_factory/eval` only if the operator wants it repeatable. **Blocks item 1's default value, not its code.**
-- [ ] **1. Size the window, pre-flight, detect truncation** (`dark_factory/harness/local_coder.py`): add
+- [x] **1. Size the window, pre-flight, detect truncation** (`dark_factory/harness/local_coder.py`): add
   `estimate_tokens(text) = ceil(len(text) / 3)`; `LocalCoderHarness(max_num_ctx=<from item 0>)`; `_call_model` sends
   `options.num_ctx = clamp(estimate + output_reserve, 4096, max_num_ctx)`; `execute_task` fails before any model call when
   the estimate plus reserve exceeds `max_num_ctx` (error names the sizes and `--target-file`); after the call
@@ -610,26 +634,26 @@ is ~3.5k tokens, still over 2048) and is dropped. Also: `target_files` exists on
   `test_call_model_sends_num_ctx_sized_to_prompt`, `test_num_ctx_is_clamped_to_ceiling_and_floor`,
   `test_execute_task_fails_before_model_call_when_prompt_exceeds_ceiling` (asserts `requests.post` not called),
   `test_execute_task_reports_truncation_when_prompt_eval_count_hits_num_ctx`.
-- [ ] **2. Record the window in the evidence** (`dark_factory/domain/types.py`, `dark_factory/harness/local_coder.py`):
+- [x] **2. Record the window in the evidence** (`dark_factory/domain/types.py`, `dark_factory/harness/local_coder.py`):
   `ModelTelemetry.num_ctx: int | None = None` (additive), set from item 1. **Test (`tests/test_domain.py` or
   `tests/test_harness.py`):** `test_telemetry_records_num_ctx` and that an old telemetry JSON without the field still loads.
-- [ ] **3. Plumb `target_files` end to end.** `TaskSpec.target_files: list[str]` (additive, default empty);
+- [x] **3. Plumb `target_files` end to end.** `TaskSpec.target_files: list[str]` (additive, default empty);
   `dark-factory run --target-file PATH` (repeatable) (`dark_factory/cli.py`, `dark_factory/domain/types.py`);
   `activity_run_verification_loop` passes `spec.target_files or None` to `run_loop`
   (`dark_factory/orchestrator/activities.py`). Paths are not validated up front (a missing path is a file to create).
   **Tests (red first):** `tests/test_cli.py::test_cli_run_passes_target_files`,
   `tests/test_orchestrator.py::test_target_files_reach_harness` (seen on every attempt, including healing).
-- [ ] **4. Token-budgeted auto-detection** (`dark_factory/harness/local_coder.py:_build_context`): with non-empty
+- [x] **4. Token-budgeted auto-detection** (`dark_factory/harness/local_coder.py:_build_context`): with non-empty
   `target_files` only those files, in full, no auto-detection; otherwise auto-detected files are inlined in prompt order while
   their estimated tokens stay within `max_num_ctx // 2`, over-budget files become stubs (text in `spec.md` §3.2). **Tests
   (red first):** `test_build_context_stubs_auto_detected_file_over_budget` (incident shape: 178-line file then 519-line
   file), `test_build_context_small_auto_detected_files_inlined`,
   `test_build_context_explicit_target_files_inlined_in_full_and_disable_detection`.
-- [ ] **5. Docs & changelog:** `docs/cli.md` (`run --target-file`), `docs/local-inference.md` (the 2048-token default, what the
+- [x] **5. Docs & changelog:** `docs/cli.md` (`run --target-file`), `docs/local-inference.md` (the 2048-token default, what the
   harness sets, the VRAM cost, Prism caveat), `spec.md` §2/§3.2/§3.6 (written in this plan step) mirrored to
   `docs/sdlc/spec.md`, `CHANGELOG.md` `[Unreleased]` "Fixed" (silent prompt truncation) and "Added"; tick the §10.7
   `_build_context` box and replace its workaround text with a pointer here. Proof: `mkdocs build --strict`.
-- [ ] **6. Real-model confirmation (manual, not a gate):** through the CLI against the real Ollama: (a) the original scenario
+- [x] **6. Real-model confirmation (manual, not a gate):** through the CLI against the real Ollama: (a) the original scenario
   without `--target-file` (expect: stub for `engine.py`, correct edit), (b) with `--target-file docs/cli.md` (expect: correct
   edit), (c) a deliberately oversize prompt (expect: the clear pre-flight error, no model call). Record in `Status:`. If (a) or
   (b) still derails, stop and report.
@@ -905,7 +929,7 @@ Autonomous coding agents often make architectural errors or write premature/hack
 - [x] R17. Sanitising gaps: `clean_text` drops `\r`, C1 controls and bidi/line separators; `md_cell` escapes backslashes first; `plan.md` fields single-line and `raw_plan` fenced; `adversarial.md` summary via `md_cell`; `describe` cleans diff, notes and plan fields (`llm_text.py`, `evidence.py`, `cli.py`).
 - [x] R18. Deadline clamp works on a per-run copy of the harness instead of mutating the shared one (`activities.py`).
 - [x] R19. Post-probe baseline re-verification failure is reported as such and its step ids are suffixed `:reverify` (`activities.py`, `engine.py`); strengthen test_r5/r2/r8 assertions.
-- [ ] **Deferred (operator, 2026-10-01), review finding 7:** `spec.md` describes `num_ctx` clamping, pre-flight failure and truncation detection that the code does not have yet; planner, auditor and mutator call `_call_model` without `num_ctx`. Delivered by §10.15 (items 1 and 4); until then a large diff can be silently truncated by Ollama's default window.
+- [x] **Delivered by §10.15 (2026-10-02); was deferred (operator, 2026-10-01), review finding 7:** `spec.md` describes `num_ctx` clamping, pre-flight failure and truncation detection that the code does not have yet; planner, auditor and mutator call `_call_model` without `num_ctx`. Delivered by §10.15 (items 1 and 4); until then a large diff can be silently truncated by Ollama's default window.
 - [ ] **Deferred (operator, 2026-10-01), review finding 9:** the planner's `target_files` are displayed but not merged into `TaskSpec.target_files`. Wire them up only with path validation against the sandbox root (reject absolute paths and `..`).
 
 

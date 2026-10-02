@@ -134,3 +134,42 @@ def test_adversarial_auditor_includes_gate_summary():
     user_prompt = args[1]
     assert "Step pytest: PASSED" in user_prompt
     assert "PROPOSED UNIFIED DIFF:" in user_prompt
+
+
+def _ollama_json(text: str):
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"response": text, "prompt_eval_count": 3000, "eval_count": 20}
+
+    return _Resp()
+
+
+def test_auditor_caps_a_large_patch_instead_of_failing_the_preflight():
+    from unittest.mock import patch
+
+    from dark_factory.harness import LocalCoderHarness
+    from dark_factory.verification.adversarial import AdversarialAuditor
+
+    big_patch = "+x\n" * 9000  # 27 KB, over the prompt window without a cap
+    reply = '{"passed": true, "summary": "ok", "findings": []}'
+    with patch("dark_factory.harness.local_coder.requests.post", return_value=_ollama_json(reply)) as post:
+        report = AdversarialAuditor(harness=LocalCoderHarness(max_num_ctx=8192)).audit_patch("task", big_patch)
+    post.assert_called_once()
+    assert "execution error" not in report.summary.lower()
+    assert any(f.severity == "INFO" and "truncated" in f.summary.lower() for f in report.findings)
+    assert report.passed  # INFO never flips the verdict
+
+
+def test_mutator_caps_a_large_patch_instead_of_failing_the_preflight():
+    from unittest.mock import patch
+
+    from dark_factory.harness import LocalCoderHarness
+    from dark_factory.verification.adversarial_mutator import AdversarialMutator
+
+    reply = "```python\ndef test_x():\n    assert True\n```"
+    with patch("dark_factory.harness.local_coder.requests.post", return_value=_ollama_json(reply)) as post:
+        code = AdversarialMutator(harness=LocalCoderHarness(max_num_ctx=8192)).generate_probe("task", "+x\n" * 9000)
+    post.assert_called_once()
+    assert code is not None

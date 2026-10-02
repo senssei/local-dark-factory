@@ -77,3 +77,7 @@ Verification: `python3 scripts/sdlc_check.py` exited 0 with authorized local soc
 ## Phase 15 performance & quality analysis — 2026-10-02
 
 Independent reviewer: fresh general-purpose Claude subagent given the spec, plan and diff only. Seven findings (1 HIGH, 3 MEDIUM, 3 LOW); five fixed test-first, one spec correction, one not a defect (sampling scope matches spec). Fixes were verified by tests, not re-reviewed independently. Gate: `python3 scripts/sdlc_check.py` exited 0.
+
+## Phase 10.15 context window — 2026-10-02
+
+Independent reviewer: fresh general-purpose Claude subagent given the spec, plan and diff. Six findings (1 HIGH, 2 MEDIUM, 3 LOW): five fixed test-first, one left as is (a rejected `--target-file` path renders as an unreadable stub). Real-model confirmation ran through the CLI against the local Ollama (scratch clone, `qwen2.5-coder:14b`); the window measurement table is in `plan.md` §10.15. Fixes were verified by tests, not re-reviewed independently. Gate: `python3 scripts/sdlc_check.py` exited 0.

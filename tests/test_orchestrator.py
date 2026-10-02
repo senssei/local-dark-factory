@@ -1261,3 +1261,50 @@ def test_sampler_stopped_on_every_exit_path(mock_repo: Path, tmp_path: Path, mon
     with pytest.raises(KeyboardInterrupt):
         engine.execute_run(spec=spec, harness=InterruptHarness(), run_id="run-an-cancel")
     assert stopped
+
+
+def test_target_files_reach_harness_on_every_attempt(mock_repo: Path, tmp_path: Path):
+    seen: list = []
+
+    class RecordingHarness(AgentHarness):
+        def execute_task(self, sandbox, task_prompt, target_files=None):
+            seen.append(target_files)
+            sandbox.write_file(
+                "calc.py",
+                b"def add(a, b):\n    return a - b\n" if len(seen) == 1 else b"def add(a, b):\n    return a + b\n",
+            )
+            return HarnessResult(success=True, modified_files=["calc.py"])
+
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="fix add",
+        verification_steps=[VerificationStep(id="t", argv=[sys.executable, "-m", "pytest", "-q", "test_calc.py"])],
+        target_files=["calc.py"],
+        skip_plan=True,
+        skip_analysis=True,
+        skip_adversarial=True,
+    )
+    manifest = engine.execute_run(spec=spec, harness=RecordingHarness(), run_id="run-target-files")
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert len(seen) >= 2 and all(tf == ["calc.py"] for tf in seen)
+
+
+def test_operator_notes_name_a_harness_failure(mock_repo: Path, tmp_path: Path):
+    class FailingHarness(AgentHarness):
+        def execute_task(self, sandbox, task_prompt, target_files=None):
+            return HarnessResult(success=False, error="Prompt needs about 33473 tokens")
+
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="x",
+        verification_steps=_passing_gate(),
+        max_healing_attempts=1,
+        skip_plan=True,
+    )
+    manifest = engine.execute_run(spec=spec, harness=FailingHarness(), run_id="run-harness-fail")
+    assert manifest.status == RunStatus.FAILED
+    assert "harness" in manifest.operator_notes.lower()
+    assert "Prompt needs about 33473 tokens" in manifest.operator_notes
+    assert "failed differently" not in manifest.operator_notes

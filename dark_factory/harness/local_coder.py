@@ -2,18 +2,39 @@
 
 from __future__ import annotations
 
+import math
 import re
 import time
 
 import requests
 
-from dark_factory.domain.errors import LocalEngineOfflineError
+from dark_factory.domain.errors import LocalEngineOfflineError, PromptTooLargeError
 from dark_factory.domain.types import ModelTelemetry
 from dark_factory.harness.base import AgentHarness, HarnessResult
 from dark_factory.sandbox.base import Sandbox
 
 _FILE_OPEN_RE = re.compile(r"^(`{3,})file:(.*)$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,})(.*)$")
+
+
+MIN_NUM_CTX = 4096
+OUTPUT_RESERVE_MIN = 1024  # tokens kept free for the reply when the caller names no larger reserve
+_TRUNCATION_MARGIN = 16
+# Measured on Ollama 0.34 (plan.md 10.15): a prompt larger than num_ctx is cut to about half the window
+# (prompt_eval_count 2050 of 4096), so that count is the truncation signature; a count that fills the window is too.
+_HALF_WINDOW_SLACK = 4
+
+
+def looks_truncated(prompt_tokens: int, num_ctx: int) -> bool:
+    """Heuristic: did the engine drop part of the prompt? Based on the reported `prompt_eval_count`."""
+    if prompt_tokens >= num_ctx - _TRUNCATION_MARGIN:
+        return True
+    return abs(prompt_tokens - (num_ctx // 2 + 2)) <= _HALF_WINDOW_SLACK
+
+
+def estimate_tokens(text: str) -> int:
+    """Deliberately pessimistic token estimate (about 3 characters per token)."""
+    return math.ceil(len(text) / 3)
 
 
 class LocalCoderHarness(AgentHarness):
@@ -25,11 +46,13 @@ class LocalCoderHarness(AgentHarness):
         ollama_url: str = "http://localhost:11434",
         prism_url: str = "http://127.0.0.1:5272/v1",
         timeout: int = 600,
+        max_num_ctx: int = 8192,
     ) -> None:
         self.model = model
         self.ollama_url = ollama_url.rstrip("/")
         self.prism_url = prism_url.rstrip("/")
         self.timeout = timeout
+        self.max_num_ctx = max_num_ctx
 
     def check_health(self) -> dict[str, bool]:
         """Check availability of local engines."""
@@ -71,8 +94,18 @@ class LocalCoderHarness(AgentHarness):
 
         user_prompt = f"TASK:\n{task_prompt}\n\n{context_text}"
 
+        # The model re-emits whole files, so reserve at least as many output tokens as the context holds.
+        reserve = max(OUTPUT_RESERVE_MIN, estimate_tokens(context_text))
+        try:
+            self._plan_window(system_prompt, user_prompt, reserve)
+        except PromptTooLargeError as exc:
+            return HarnessResult(
+                success=False,
+                error=f"{exc} Shorten the task or narrow the context with --target-file PATH (repeatable).",
+            )
+
         # Dispatch generation
-        response_text, telemetry = self._call_model(system_prompt, user_prompt)
+        response_text, telemetry = self._call_model(system_prompt, user_prompt, output_reserve=reserve)
 
         # Parse file blocks
         files_to_write = self._parse_file_blocks(response_text)
@@ -83,12 +116,15 @@ class LocalCoderHarness(AgentHarness):
                 files_to_write.append((target_files[0], code))
 
         if not files_to_write:
-            return HarnessResult(
-                success=False,
-                telemetry=telemetry,
-                raw_response=response_text,
-                error="Model did not output any recognizable file code blocks (expected ```file:<path>).",
-            )
+            error = "Model did not output any recognizable file code blocks (expected ```file:<path>)."
+            if telemetry.num_ctx is not None and looks_truncated(telemetry.prompt_tokens, telemetry.num_ctx):
+                # Only explains a failure: a coincidental count must never discard a valid reply.
+                error += (
+                    f" The prompt was probably truncated by the engine: it processed {telemetry.prompt_tokens} "
+                    f"tokens in a {telemetry.num_ctx}-token window, so part of the prompt (including the format "
+                    "rules) may have been dropped. Narrow the context with --target-file."
+                )
+            return HarnessResult(success=False, telemetry=telemetry, raw_response=response_text, error=error)
 
         modified = []
         for rel_path, content in files_to_write:
@@ -103,9 +139,10 @@ class LocalCoderHarness(AgentHarness):
         )
 
     def _build_context(self, sandbox: Sandbox, task_prompt: str, target_files: list[str] | None) -> str:
-        files_to_load = list(target_files or [])
-        if not files_to_load:
-            # Scan prompt for potential file paths that exist in sandbox
+        explicit = list(target_files or [])
+        files_to_load = list(explicit)
+        if not explicit:
+            # Fallback: scan the prompt for file paths that exist in the sandbox
             for candidate in re.findall(r"[\w/\.-]+\.[a-zA-Z0-9]+", task_prompt):
                 candidate_clean = candidate.strip("`'\",:;()[]")
                 try:
@@ -118,17 +155,42 @@ class LocalCoderHarness(AgentHarness):
         if not files_to_load:
             return "CONTEXT: Repository root.\n"
 
+        budget = self.max_num_ctx // 2  # applies to auto-detected files only
         context_parts = ["CONTEXT FILES:"]
         for path in files_to_load:
             try:
                 content = sandbox.read_file(path).decode("utf-8", errors="replace")
-                context_parts.append(f"--- File: {path} ---\n{content}\n")
             except Exception as e:
                 context_parts.append(f"--- File: {path} (new or unreadable: {e}) ---\n")
+                continue
+            if not explicit:
+                cost = estimate_tokens(content)
+                if cost > budget:
+                    lines = len(content.splitlines())
+                    context_parts.append(
+                        f"--- File: {path} ({lines} lines, not inlined: over the auto-detected context budget; "
+                        "pass --target-file to include it) ---\n"
+                    )
+                    continue
+                budget -= cost
+            context_parts.append(f"--- File: {path} ---\n{content}\n")
         return "\n".join(context_parts)
 
-    def _call_model(self, system_prompt: str, user_prompt: str) -> tuple[str, ModelTelemetry]:
+    def _plan_window(self, system_prompt: str, user_prompt: str, output_reserve: int) -> int:
+        """Return the `num_ctx` to request, or raise PromptTooLargeError before any model call."""
+        needed = estimate_tokens(system_prompt) + estimate_tokens(user_prompt) + output_reserve
+        if needed > self.max_num_ctx:
+            raise PromptTooLargeError(
+                f"Prompt needs about {needed} tokens (prompt plus {output_reserve} reserved for the reply) "
+                f"but max_num_ctx is {self.max_num_ctx}."
+            )
+        return min(self.max_num_ctx, max(MIN_NUM_CTX, needed))
+
+    def _call_model(
+        self, system_prompt: str, user_prompt: str, output_reserve: int = OUTPUT_RESERVE_MIN
+    ) -> tuple[str, ModelTelemetry]:
         """Call Ollama native API or OpenAI-compatible endpoint."""
+        num_ctx = self._plan_window(system_prompt, user_prompt, output_reserve)
         start_time = time.monotonic()
 
         ollama_err = ""
@@ -141,6 +203,7 @@ class LocalCoderHarness(AgentHarness):
                 "stream": False,
                 "options": {
                     "temperature": 0.2,
+                    "num_ctx": num_ctx,
                 },
             }
             resp = requests.post(
@@ -165,6 +228,7 @@ class LocalCoderHarness(AgentHarness):
                     duration_sec=round(duration, 3),
                     tokens_per_sec=round(tps, 2),
                     cost_usd=0.0,
+                    num_ctx=num_ctx,
                 )
                 return data.get("response", ""), telemetry
             elif resp.status_code == 404:

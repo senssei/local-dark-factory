@@ -9,12 +9,14 @@ from collections.abc import Callable
 from dark_factory.domain.errors import RunTimeoutError
 from dark_factory.domain.types import ModelTelemetry, RunStatus, StepExecution
 from dark_factory.harness.base import AgentHarness
+from dark_factory.harness.llm_text import cap_text
 from dark_factory.sandbox.base import Sandbox
 from dark_factory.verification.runner import VerificationOutcome, VerificationRunner
 
 # Matches a volatile "N.NNs" duration substring (e.g. pytest's own "1 failed in 0.03s" footer). Two
 # verification runs with the *same* real outcome can still differ here purely from wall-clock noise, so
 # it must be normalized away before comparing "is this the same failure as last time".
+MAX_ERROR_TRACE_CHARS = 6000  # about 2000 estimated tokens of gate output in a repair prompt
 _DURATION_RE = re.compile(r"\d+\.\d+s\b")
 
 
@@ -91,12 +93,15 @@ class SelfHealingLoop:
                         duration_sec=t.duration_sec,
                         tokens_per_sec=t.tokens_per_sec,
                         cost_usd=0.0,
+                        num_ctx=t.num_ctx,
                     )
                 else:
                     aggregated_telemetry.prompt_tokens += t.prompt_tokens
                     aggregated_telemetry.completion_tokens += t.completion_tokens
                     aggregated_telemetry.total_tokens += t.total_tokens
                     aggregated_telemetry.duration_sec = round(aggregated_telemetry.duration_sec + t.duration_sec, 3)
+                    if t.num_ctx is not None:  # report the largest window any attempt used
+                        aggregated_telemetry.num_ctx = max(aggregated_telemetry.num_ctx or 0, t.num_ctx)
                     if aggregated_telemetry.duration_sec > 0:
                         aggregated_telemetry.tokens_per_sec = round(
                             aggregated_telemetry.completion_tokens / aggregated_telemetry.duration_sec, 2
@@ -105,13 +110,16 @@ class SelfHealingLoop:
             # If harness failed to generate or parse blocks, treat as a healing retry
             if not harness_result.success:
                 healing_attempts += 1
+                error_msg = harness_result.error or "Model did not output any recognizable file blocks."
                 if healing_attempts > self.max_retries:
-                    return False, healing_attempts, all_executions, aggregated_telemetry, repeated_failure_streak
+                    # No gate ran, so keep the reason in the evidence instead of an unexplained FAILED. The
+                    # last failure was the harness's, so an earlier gate-failure streak no longer applies.
+                    all_executions.append(StepExecution("harness", 1, "", error_msg, 0.0))
+                    return False, healing_attempts, all_executions, aggregated_telemetry, 0
 
                 if status_callback:
                     status_callback(RunStatus.SELF_HEALING)
 
-                error_msg = harness_result.error or "Model did not output any recognizable file blocks."
                 current_prompt = (
                     f"ORIGINAL TASK:\n{initial_prompt}\n\n"
                     f"REPAIR ATTEMPT #{healing_attempts} OF {self.max_retries}:\n"
@@ -163,7 +171,10 @@ class SelfHealingLoop:
                 status_callback(RunStatus.SELF_HEALING)
 
             # 4. Construct repair prompt with error trace AND original task retained
-            error_trace = outcome.error_summary
+            # A full pytest dump can exceed the model's window; the head names the gate, the tail has the summary.
+            error_trace, _ = cap_text(
+                outcome.error_summary, MAX_ERROR_TRACE_CHARS, keep_tail=MAX_ERROR_TRACE_CHARS * 3 // 4
+            )
             tamper_notice = ""
             if outcome.tampered_paths:
                 tamper_notice = (

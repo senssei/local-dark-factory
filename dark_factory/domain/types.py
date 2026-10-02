@@ -82,6 +82,7 @@ class TaskSpec:
     skip_analysis: bool = False
     planner_model: str | None = None
     skip_plan: bool = False
+    target_files: list[str] = field(default_factory=list)  # files the agent edits; inlined in full as context
 
 
 @dataclass
@@ -109,6 +110,7 @@ class ModelTelemetry:
     duration_sec: float = 0.0
     tokens_per_sec: float = 0.0
     cost_usd: float = 0.0  # Always 0.0 for local models
+    num_ctx: int | None = None  # context window requested from the engine (Ollama only)
 
 
 @dataclass

@@ -508,3 +508,78 @@ def test_verification_runner_short_circuits_when_deadline_already_passed():
         runner.run(sandbox, deadline=time.monotonic() - 1.0)
 
     assert not sandbox.execute.called
+
+
+def test_self_healing_keeps_the_context_window_in_aggregated_telemetry():
+    sandbox = FakeSandbox()
+    sandbox.exec_results = [
+        StepExecution("test", 1, "", "boom", 0.5),
+        StepExecution("test", 0, "Pass", "", 0.5),
+    ]
+    mock_harness = MagicMock(spec=AgentHarness)
+    mock_harness.execute_task.side_effect = [
+        HarnessResult(
+            success=True,
+            modified_files=["a.py"],
+            telemetry=ModelTelemetry(engine="ollama", model_name="m", prompt_tokens=1, num_ctx=4096),
+        ),
+        HarnessResult(
+            success=True,
+            modified_files=["a.py"],
+            telemetry=ModelTelemetry(engine="ollama", model_name="m", prompt_tokens=1, num_ctx=8192),
+        ),
+    ]
+    runner = VerificationRunner([VerificationStep("test", ["pytest"])])
+    _, _, _, telemetry, _ = SelfHealingLoop(max_retries=2).run_loop(
+        sandbox=sandbox, harness=mock_harness, initial_prompt="x", verification_runner=runner
+    )
+    assert telemetry is not None and telemetry.num_ctx == 8192
+
+
+def test_self_healing_records_the_harness_error_when_it_gives_up():
+    mock_harness = MagicMock(spec=AgentHarness)
+    mock_harness.execute_task.return_value = HarnessResult(success=False, error="Prompt needs about 20000 tokens")
+    runner = VerificationRunner([VerificationStep("test", ["pytest"])])
+    passed, attempts, executions, _, _ = SelfHealingLoop(max_retries=1).run_loop(
+        sandbox=FakeSandbox(), harness=mock_harness, initial_prompt="x", verification_runner=runner
+    )
+    assert not passed
+    assert [ex.step_id for ex in executions] == ["harness"]
+    assert "Prompt needs about 20000 tokens" in executions[0].stderr
+    assert not executions[0].passed
+
+
+def test_self_healing_caps_a_huge_failure_trace_in_the_repair_prompt():
+    sandbox = FakeSandbox()
+    huge = "E  noise\n" * 12000 + "FINAL SUMMARY LINE"
+    sandbox.exec_results = [StepExecution("test", 1, "", huge, 0.5), StepExecution("test", 0, "ok", "", 0.5)]
+    mock_harness = MagicMock(spec=AgentHarness)
+    mock_harness.execute_task.return_value = HarnessResult(success=True, modified_files=["a.py"])
+    runner = VerificationRunner([VerificationStep("test", ["pytest"])])
+    SelfHealingLoop(max_retries=2).run_loop(
+        sandbox=sandbox, harness=mock_harness, initial_prompt="task", verification_runner=runner
+    )
+    repair = mock_harness.execute_task.call_args_list[1][1]["task_prompt"]
+    assert len(repair) < 12000
+    assert "FINAL SUMMARY LINE" in repair  # the tail (pytest summary) is kept
+    assert "truncated" in repair.lower()
+
+
+def test_self_healing_resets_the_failure_streak_when_the_harness_fails_last():
+    sandbox = FakeSandbox()
+    same = StepExecution("test", 1, "", "same error", 0.1)
+    sandbox.exec_results = [same, same, same]
+    mock_harness = MagicMock(spec=AgentHarness)
+    mock_harness.execute_task.side_effect = [
+        HarnessResult(success=True, modified_files=["a.py"]),
+        HarnessResult(success=True, modified_files=["a.py"]),
+        HarnessResult(success=False, error="Prompt needs too much"),
+        HarnessResult(success=False, error="Prompt needs too much"),
+    ]
+    runner = VerificationRunner([VerificationStep("test", ["pytest"])])
+    passed, _, executions, _, streak = SelfHealingLoop(max_retries=3).run_loop(
+        sandbox=sandbox, harness=mock_harness, initial_prompt="x", verification_runner=runner
+    )
+    assert not passed
+    assert executions[-1].step_id == "harness"
+    assert streak == 0
