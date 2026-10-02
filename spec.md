@@ -88,6 +88,7 @@ class TaskSpec:
     verification_steps: List[VerificationStep] = field(default_factory=list)
     max_healing_attempts: int = 3
     timeout_minutes: float = 30
+    target_files: List[str] = field(default_factory=list)  # files the agent edits; inlined in full as context
 
 @dataclass
 class StepExecution:
@@ -123,6 +124,29 @@ class EvidenceManifest:
     model_telemetry: Dict[str, Any]
     phase_timings: List[PhaseTiming] = field(default_factory=list)
     total_cost_usd: float = 0.0
+    adversarial_report: Optional[Dict[str, Any]] = None  # findings from the red-team audit gate
+
+@dataclass
+class AdversarialFinding:
+    severity: str  # "INFO", "WARN", "CRITICAL"
+    category: str  # "anti-cheating", "boundary", "security", "regression"
+    summary: str
+    details: str
+
+@dataclass
+class AdversarialReport:
+    passed: bool
+    summary: str
+    findings: List[AdversarialFinding] = field(default_factory=list)
+
+@dataclass
+class ExecutionPlan:
+    plan_id: str
+    summary: str
+    invariants: List[str] = field(default_factory=list)
+    steps: List[str] = field(default_factory=list)
+    target_files: List[str] = field(default_factory=list)
+    raw_plan: str = ""
 ```
 
 ---
@@ -159,11 +183,31 @@ class EvidenceManifest:
     - Primary: Ollama (`qwen2.5-coder:14b`).
     - Secondary: Prism CUDA (`http://127.0.0.1:5272/v1`).
   - Collects token generation counts, elapsed time, and tokens/sec telemetry.
+  - **Context window (Ollama):** Ollama's default window is 2048 tokens and it silently drops the *start* of a longer prompt, which is where the `FORMAT RULES` live; the model then answers in prose instead of `file:` blocks (measured: a 6256-token prompt processed as 2050 tokens, plan.md §10.15). The harness therefore (a) estimates the prompt size (`len(text) / 3` tokens, deliberately pessimistic), (b) sends `options.num_ctx = clamp(estimate + output reserve, 4096, max_num_ctx)`, where the output reserve is at least the size of the inlined files (the model re-emits whole files) and `max_num_ctx` is a constructor argument (default: see plan.md §10.15, chosen by measurement), (c) fails *before calling the model* with a clear error when the estimate plus reserve exceeds `max_num_ctx`, and (d) after the call, treats `prompt_eval_count >= num_ctx - 16` as a truncated prompt and returns a failed `HarnessResult` naming the window instead of parsing the reply. The chosen `num_ctx` is recorded in `ModelTelemetry.num_ctx`. Prism's OpenAI-compatible endpoint has no per-request window: only (a), (c) and, when the response reports `usage.prompt_tokens`, (d) apply (Prism's own window behavior is unverified).
+  - **Context building (`_build_context`):** if `target_files` is non-empty, exactly those files are inlined in full and prompt-text auto-detection is off. Otherwise (fallback) paths found in the task prompt that exist in the sandbox are auto-detected and inlined in prompt order while their estimated tokens stay within half of `max_num_ctx`; an auto-detected file that would exceed the remaining budget is listed as a one-line stub (`--- File: <path> (<N> lines, not inlined: over the auto-detected context budget; pass --target-file to include it) ---`) and later, smaller files may still fit.
   - **File block protocol:** each file is emitted as `` ```file:<path> `` … `` ``` ``. Parsing is line-based and nesting-aware: a fence with an info string (`` ```python ``) inside a file opens a nested block, a bare fence closes it, and only a bare fence at depth 0 (at least as long as the opening one) terminates the file. File contents may therefore contain balanced markdown code fences (READMEs, docstrings) without being truncated. A block that is never terminated (truncated model output) is discarded, never written half-complete.
 
 - **`OpenCodeHarness`**:
   - Headless driver for local autonomous coding agents.
   - Configures agent runners to use local OpenAI-compatible endpoints.
+
+### 3.2.1. Split-Model Architecture: Planner & Executor (`dark_factory.planning`)
+
+- **Separation of Concerns**:
+  - Complex engineering tasks frequently suffer when a single model is forced to perform high-level architectural decomposition and low-level code syntax synthesis simultaneously.
+  - The Split-Model Architecture decouples the task lifecycle into two explicit, sequential phases:
+    1. **Planning Session (`LocalPlanner`)**: Executes a reasoning model (`planner_model`, e.g. `deepseek-r1:14b` or `qwen2.5-coder:14b`) with a dedicated system prompt. The planner analyzes the repository structure, task prompt, acceptance criteria, and verification gates to produce an `ExecutionPlan` containing architectural invariants, step-by-step implementation strategy, and target files.
+    2. **Execution Session (`LocalCoderHarness`)**: Executes a code-specialized model (`model`, e.g. `qwen2.5-coder:14b`). The coder receives the original `TaskSpec` augmented with the structured `ExecutionPlan`, constraining the model to generate targeted, minimal file modifications without architectural drift.
+- **Sequential VRAM Execution (12GB Hardware Invariant)**:
+  - Planner and Executor run strictly in sequence, never concurrently.
+  - Ollama loads and unloads weights sequentially, preventing out-of-memory crashes on single-GPU hardware.
+  - When `planner_model == model`, zero model swapping occurs while still benefiting from two-stage chain-of-thought separation.
+- **Fail-Safe Planning**:
+  - If a reasoning model emits malformed JSON or conversational prose, the planner wraps the raw output into a standard fallback `ExecutionPlan` rather than failing the run.
+  - The operator can bypass the planning phase via `--no-plan` (`TaskSpec.skip_plan = True`).
+- **Evidence & Operator Surfaces**:
+  - The plan is saved as `.factory/runs/<RUN_ID>/plan.md` in the evidence locker.
+  - Embedded into `EvidenceManifest.execution_plan`, rendered in `dark-factory describe`, and displayed on the web dashboard.
 
 ---
 
@@ -176,6 +220,7 @@ class EvidenceManifest:
   - Before verification, protected paths are restored to `base_rev` (unless `--allow-gate-edits`).
   - Default protected set = every path-like argv token of the configured steps (matched by prefix removal, never character stripping) plus `tests`, `test`, `test.sh`, `pytest.ini`, `tox.ini`, and the test-runner configuration files `pyproject.toml`, `setup.cfg`, `conftest.py` (any depth), `.coveragerc`, `sitecustomize.py`, `usercustomize.py`.
 - **No-op is not success**: a run whose gates pass but whose patch is empty ends `FAILED` (`reason: empty_patch`); only a non-empty, verified patch may reach `AWAITING_REVIEW`.
+- **P0 runner integrity:** with gate protection enabled, Python `-m` gate modules (including dotted module names) and recognized Python console tools have their root import module/package restored to the trusted baseline before execution. Pytest's `_pytest` and `pluggy` bootstrap imports are protected too. This protection is additive even when explicit `protected_paths` replace test-path defaults. Ignored shadow files, packages and bytecode must be included in restoration; a restoration failure must prevent gate execution. Existing `allow_gate_edits` remains an explicit bypass. Application source remains editable and importable by tests. This is repository tamper protection, not host process isolation or a guarantee for arbitrary dynamic imports or shell-script runners. Normative reference: `docs/verification-gates.md`.
 - **Self-Healing Loop**:
   - If a gate fails, the runner packages:
     1. The failing gate command and exit code.
@@ -191,6 +236,25 @@ class EvidenceManifest:
     Fix the errors so that the verification gate passes cleanly.
     ```
   - Loops up to `max_healing_attempts`. If it fails after all retries, the run status is marked `FAILED` and changes are preserved for operator inspection.
+
+- **Adversarial Red-Team Gate (`dark_factory.verification.adversarial`)**:
+  - **Position**: Executes immediately following successful deterministic verification gates, before transitioning to `AWAITING_REVIEW`.
+  - **Input**: The unified `diff.patch`, original `TaskSpec`, and gate results.
+  - **Execution**: Evaluates the patch using a local critic persona across four dimensions:
+    1. *Anti-cheating*: Shortcut implementations, dummy returns, or mocked checks.
+    2. *Boundary invariants*: Missing edge-case handlers, zero-length collections, nullability.
+    3. *Security*: Traversal attacks, command injection, secret leakage, or unsafe I/O.
+    4. *Regression risk*: Architectural drift, broken contracts, or CPU/memory leaks.
+  - **Output**: An `AdversarialReport` containing structured findings with severity levels (`INFO`, `WARN`, `CRITICAL`).
+  - **Advisory only**: The audit never changes `final_status`; `passed` is derived from the findings (no `WARN`/`CRITICAL`), never taken from model text.
+  - **Operator Surface**: Embedded into `EvidenceManifest.adversarial_report`, rendered by `dark-factory describe` and `dark-factory review`, and saved to `.factory/runs/<RUN_ID>/adversarial.md`.
+- **Active Adversarial Mutation (`dark_factory.verification.adversarial_mutator`)**:
+  - **Position**: When `--mutate-adversarial` is enabled (`TaskSpec.mutate_adversarial = True`), executes after deterministic verification gates pass.
+  - **Synthesis**: Queries a local hostile QA model to generate dynamic Python unit test code (`test_adversarial_probe.py`) probing boundary invariants, edge cases, and anti-cheating assertions on the modified functions.
+  - **Syntax Safety**: Generated code is parsed with `ast.parse` prior to execution; malformed code is safely rejected without halting the run.
+  - **Feedback Loop**: Mutated tests are executed in the sandbox. If an adversarial test fails (`exit_code != 0`), the failure is fed back into `SelfHealingLoop`, forcing the Coder model to iterate until both baseline gates and adversarial tests pass (or healing attempts exhaust).
+  - **Integrity**: The probe is LLM-authored code. After it passes (directly or after healing), `test_adversarial_probe.py` is removed and the baseline gates are re-run on the final tree; a failure there fails the run. A deadline hit during mutation yields `TIMED_OUT` with the probe removed and the diff and evidence preserved. Planner, auditor and mutator model calls are clamped to the remaining run deadline.
+  - **Evidence**: Mutated test code is captured in `EvidenceManifest.adversarial_test_code` and saved as `adversarial_test.py` in the evidence locker.
 
 ---
 
@@ -224,7 +288,7 @@ Stored at `.factory/runs/<RUN_ID>/`:
 ### 3.6. CLI & Operator Controls (`dark_factory.cli`)
 
 - `dark-factory doctor`: Verifies Ollama, Prism, GPU VRAM, git binary.
-- `dark-factory run`: Submits a task.
+- `dark-factory run`: Submits a task. `--target-file PATH` (repeatable) names the files the agent is to edit; they become `TaskSpec.target_files` and are the harness's only inlined context (see §3.2).
 - `dark-factory status [RUN_ID] [--watch]`: Streams execution status.
 - `dark-factory describe RUN_ID`: Prints manifest, conditions, and diff.
 - `dark-factory review RUN_ID --approve [--branch <name>]`: Applies the patch to the target branch.
@@ -277,3 +341,21 @@ Stored at `.factory/runs/<RUN_ID>/`:
   not routed through the SQLite journal); `dark_factory.eval.runner.list_eval_reports()`/`load_report()` for
   the Eval view. The dashboard reads `.factory/` state; it never triggers `execute_run`/`review_run` itself.
 - **CLI**: `dark-factory dashboard [--port 8420] [--storage-dir D] [--no-browser]`.
+
+
+## Workspace SDLC unification — 2026-10-02
+
+Scope authorized by the operator's request to unify SDLC across projects 01–08. The workflow is intent → spec → plan → test (red) → code → independent review. Existing domain invariants and adversarial findings remain in force.
+
+- Kit-owned runner, five skills, pre-commit hook and Cursor rule come from the sibling `local-sdlc-kit`; install/update with its installer, never maintain project forks of those files.
+- `AGENTS.md` carries the same kit process section in every project; project-specific language, hardware, privacy and execution rules stay outside that section. Harness adapters point to `AGENTS.md`.
+- `sdlc.toml` declares the actual checks, red command, timeout and changelog paths. The public gate command is `python3 scripts/sdlc_check.py`; selection uses `--only NAME`, red uses `--red ID`. Gate tooling requires Python 3.11+ independently of product runtime support.
+- Migration preserves existing verification controls. Project-specific changed-line lint in Prism remains a separate helper; common runner logic must not absorb language-specific behavior. Pytest collection errors and missing unittest ids must be NOT RED.
+- Missing/invalid gate configuration or unknown checks fail explicitly. Missing optional documentation tooling may only skip where the prior gate allowed it. A skipped or unavailable check is reported, not presented as verified.
+- 01 gains static Python compilation and JSON/configuration checks; live Windows probes remain manual. 04 gains its existing Astro build as the gate; neither project claims a behavioral test suite that does not exist. Their red interfaces are configured for future unittest/Node test ids and reject missing tests.
+- Workspace consistency checks compare installed kit-owned files and process sections with the kit source. Project check sets stay distinct; no common lowest-denominator test suite is imposed.
+- Implementation status is recorded separately from verification. Plan boxes remain open until the complete project gate passes; unrelated pre-existing failures are preserved and reported. No commits, pushes, real engine calls or automatic hook activation are part of this change.
+
+### Codex execution contract
+
+Codex reads project AGENTS.md and routes through `.agents/skills/sdlc`. A natural-language request is sufficient; `$sdlc` is an explicit entry. Gate checks receive the selected comparison base through `SDLC_BASE`. Full `scripts/sdlc_check.py` is also configured in `.github/workflows/sdlc.yml`; existing CI jobs remain. A sandbox-blocked check remains unverified. Operator authorization persists within the requested scope.

@@ -27,6 +27,7 @@ graph TD
         VR[VerificationRunner]
         SHL[SelfHealingLoop]
         GTR[Gate Tamper Protection]
+        ADV[Adversarial Red-Team Gate]
     end
 
     subgraph Local Inference
@@ -45,6 +46,8 @@ graph TD
     LCH --> PRM
     VR --> GTR
     VR --> SHL
+    VR --> ADV
+    ADV --> EL
 ```
 
 ---
@@ -67,6 +70,7 @@ graph TD
 - **Gate Tamper Protection**: Before running the gates, resets the protected paths (see [Verification Gates](verification-gates.md), including when the defaults do not apply) to `base_rev` through `Sandbox.restore_paths`. A run with zero gates stops before this step.
 - **Zero-Gate Detection**: Aborts runs with zero gates unless explicitly bypassed.
 - **`SelfHealingLoop`**: Captures exit codes, stdout, and stderr from failed runs, merges them with the original task specification, and re-prompts the local LLM.
+- **Adversarial Red-Team Gate**: Post-verification critic that audits green patches for cheating, boundary defects, regressions, and security anomalies before human review (see [Adversarial Pipeline](adversarial-pipeline.md)).
 
 ### 4. Local Inference Harness (`dark_factory.harness`)
 - **`LocalCoderHarness`**: Multi-engine local router.

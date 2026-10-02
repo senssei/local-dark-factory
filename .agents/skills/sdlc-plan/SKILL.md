@@ -1,6 +1,6 @@
 ---
 name: sdlc-plan
-description: Stages 1 to 3 of the SDLC. Check the change against intent.md, write the new behavior into spec.md, and add plan.md items that name their files and tests, then get the operator's approval before any code. Use when a feature, bugfix or refactor is requested and the spec or an approved plan item does not exist yet.
+description: Stages 1 to 3 of the SDLC. Check the change against intent.md, write the new behavior into spec.md, and add plan.md items that name their files and tests, then verify operator authorization before any code. Use when a feature, bugfix or refactor is requested and the spec or an approved plan item does not exist yet.
 ---
 
 # Stages 1 to 3: intent, spec, plan
@@ -27,10 +27,9 @@ Goal: agree on what "done" means before touching code. The output is edits to `i
    step. Each names the files it touches and the test that proves it. Add items for docs and the changelog when the change is
    user-visible. Put risks and open questions in the phase, especially what a test cannot cover.
 6. **Check the project rules** in `AGENTS.md` (section "Project rules") against the plan and against the invariants in `spec.md`.
-7. **Present the changes** to the artifacts (`git diff` for edited files, `git status` for new ones; not the whole exploration) as an
-   approval request that lists the open questions, and ask for approval. Do not start implementing in the same turn.
-8. On approval, record it on disk: if `intent.md` was changed or is still a draft, set its status line to
-   `> **Status: approved by the operator, <date>.**`, and add `Status: approved by the operator, not started.` under the phase
+7. **Check authorization.** Present the concrete spec/plan diff, `git status`, and open questions. If the user already authorized implementation within this scope, record that request and continue; do not force a second approval or a turn boundary. Ask before changed intent/invariants, scope expansion or other operator-gated actions that lack authorization.
+8. Record the authorization on disk. Only if the operator explicitly approved `intent.md`, set its status line to
+   `> **Status: approved by the operator, <date>.**`, and add `Status: implementation authorized by operator request; not started.` under the phase
    heading in `plan.md`.
 
 ## Exit criterion

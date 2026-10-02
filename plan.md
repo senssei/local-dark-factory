@@ -317,7 +317,7 @@ grep-able decisions (red first); the remaining items are prose proven by `mkdocs
 - [x] **`detect_default_gate_paths()` can't tell a lint/type-check gate's *target* file from a *test/config*
   file** — found in 10.12, **fixed in 10.13** (see below), no longer open.
 
-- [ ] **`LocalCoderHarness._build_context()` auto-detects and inlines *any* file path mentioned in the task
+- [ ] **(tracked and scheduled in §10.15)** **`LocalCoderHarness._build_context()` auto-detects and inlines *any* file path mentioned in the task
   prompt, in full, with no size cap — including files mentioned only for reference/explanation, not files
   the agent is meant to edit.** Found 2026-09-29 during real dogfooding on this repo itself (not a
   synthetic eval scenario): a task asking to update `docs/cli.md`'s `recover` section, whose prompt also
@@ -581,6 +581,66 @@ re-derive a similarly-flawed fix from scratch rather than trying something quali
 
 ---
 
+## Phase 10.15: Context Window Sizing, Truncation Detection & Explicit Target Files
+
+**Status:** plan (redesigned twice; 2026-09-30 redesign around `num_ctx` after measurement) awaiting operator approval;
+nothing implemented. Reverses the 2026-09-29 "document only" decision for the `_build_context` bug in §10.7.
+
+**Root cause (measured 2026-09-30, real `qwen2.5-coder:14b`, this host):** not "too many files confuse the model". Ollama's
+default context window is 2048 tokens and it silently drops the start of a longer prompt. The incident prompt (`docs/cli.md`
++ `engine.py`) is 6256 tokens; Ollama processed 2050 (`prompt_eval_count`), losing the `FORMAT RULES`, so the model explained the
+code (2/2 runs, no `file:` block). Same prompt with `num_ctx=16384`: correct edit. `docs/cli.md` alone used 1888 of 2048, so the
+margin is thin and **any task whose prompt exceeds ~2k tokens is affected, including every self-healing prompt that appends
+failure output**. `_call_model` never sets `num_ctx`. Cost measured: `num_ctx=16384` needs 11.8 GB, of which 9.8 GB fits in
+VRAM on the 12 GB card (~2 GB on CPU), and the run took 141 s vs ~40 s. The earlier "400-line budget" idea was wrong (400 lines
+is ~3.5k tokens, still over 2048) and is dropped. Also: `target_files` exists on `AgentHarness.execute_task` and
+`SelfHealingLoop.run_loop` but `TaskSpec`, the CLI and `activity_run_verification_loop` never supply it.
+
+- [ ] **0. Measure before choosing the ceiling (manual, no code).** For the incident prompt at `num_ctx` 4096, 8192, 12288,
+  16384: `prompt_eval_count`, peak VRAM vs CPU spill (`/api/ps`), seconds, and whether a `file:` block comes back (3 runs each).
+  Record the table in this phase's `Status:` and set the default `max_num_ctx` from it (constraint: no more than a small CPU
+  spill on the operator's 12 GB card). Scratch script: `ctx_experiment.py` in the session scratchpad, to be promoted into
+  `dark_factory/eval` only if the operator wants it repeatable. **Blocks item 1's default value, not its code.**
+- [ ] **1. Size the window, pre-flight, detect truncation** (`dark_factory/harness/local_coder.py`): add
+  `estimate_tokens(text) = ceil(len(text) / 3)`; `LocalCoderHarness(max_num_ctx=<from item 0>)`; `_call_model` sends
+  `options.num_ctx = clamp(estimate + output_reserve, 4096, max_num_ctx)`; `execute_task` fails before any model call when
+  the estimate plus reserve exceeds `max_num_ctx` (error names the sizes and `--target-file`); after the call
+  `prompt_eval_count >= num_ctx - 16` returns `HarnessResult(success=False, error=...)` naming the window (Prism: same check
+  via `usage.prompt_tokens` when reported). **Tests (`tests/test_harness.py`, mocked `requests`, red first):**
+  `test_call_model_sends_num_ctx_sized_to_prompt`, `test_num_ctx_is_clamped_to_ceiling_and_floor`,
+  `test_execute_task_fails_before_model_call_when_prompt_exceeds_ceiling` (asserts `requests.post` not called),
+  `test_execute_task_reports_truncation_when_prompt_eval_count_hits_num_ctx`.
+- [ ] **2. Record the window in the evidence** (`dark_factory/domain/types.py`, `dark_factory/harness/local_coder.py`):
+  `ModelTelemetry.num_ctx: int | None = None` (additive), set from item 1. **Test (`tests/test_domain.py` or
+  `tests/test_harness.py`):** `test_telemetry_records_num_ctx` and that an old telemetry JSON without the field still loads.
+- [ ] **3. Plumb `target_files` end to end.** `TaskSpec.target_files: list[str]` (additive, default empty);
+  `dark-factory run --target-file PATH` (repeatable) (`dark_factory/cli.py`, `dark_factory/domain/types.py`);
+  `activity_run_verification_loop` passes `spec.target_files or None` to `run_loop`
+  (`dark_factory/orchestrator/activities.py`). Paths are not validated up front (a missing path is a file to create).
+  **Tests (red first):** `tests/test_cli.py::test_cli_run_passes_target_files`,
+  `tests/test_orchestrator.py::test_target_files_reach_harness` (seen on every attempt, including healing).
+- [ ] **4. Token-budgeted auto-detection** (`dark_factory/harness/local_coder.py:_build_context`): with non-empty
+  `target_files` only those files, in full, no auto-detection; otherwise auto-detected files are inlined in prompt order while
+  their estimated tokens stay within `max_num_ctx // 2`, over-budget files become stubs (text in `spec.md` §3.2). **Tests
+  (red first):** `test_build_context_stubs_auto_detected_file_over_budget` (incident shape: 178-line file then 519-line
+  file), `test_build_context_small_auto_detected_files_inlined`,
+  `test_build_context_explicit_target_files_inlined_in_full_and_disable_detection`.
+- [ ] **5. Docs & changelog:** `docs/cli.md` (`run --target-file`), `docs/local-inference.md` (the 2048-token default, what the
+  harness sets, the VRAM cost, Prism caveat), `spec.md` §2/§3.2/§3.6 (written in this plan step) mirrored to
+  `docs/sdlc/spec.md`, `CHANGELOG.md` `[Unreleased]` "Fixed" (silent prompt truncation) and "Added"; tick the §10.7
+  `_build_context` box and replace its workaround text with a pointer here. Proof: `mkdocs build --strict`.
+- [ ] **6. Real-model confirmation (manual, not a gate):** through the CLI against the real Ollama: (a) the original scenario
+  without `--target-file` (expect: stub for `engine.py`, correct edit), (b) with `--target-file docs/cli.md` (expect: correct
+  edit), (c) a deliberately oversize prompt (expect: the clear pre-flight error, no model call). Record in `Status:`. If (a) or
+  (b) still derails, stop and report.
+- **Open questions:** (1) Default `max_num_ctx`: decided from item 0; the trade-off is VRAM spill and speed on this GPU vs how
+  large a task fits. (2) Should `max_num_ctx` be operator-settable from the CLI (`--max-num-ctx`) or env? Not planned; constructor
+  argument only. (3) Prism's window behavior is unverified (no per-request setting); only the estimate pre-flight protects that
+  path. (4) `TaskSpec` and `ModelTelemetry` gain public fields; the dead `agent`/`metadata` fields stay untouched.
+  (5) Tests with mocked `requests` prove the plumbing, not that the model behaves; only item 6 (non-deterministic) does.
+
+---
+
 ## Phase 11: Forward-Looking Capabilities (Post-`0.1.x` Decisions)
 
 Items below are unresolved **strategic** decisions surfaced by the adversarial reviews. They are tracked
@@ -721,3 +781,156 @@ codebase. Follows this repo's own intent → spec → plan → test → code →
 `pytest tests/ -m "not local_engine" -q` and the full suite including `-m local_engine` against the real
 local Ollama both pass); manual checks as noted per-section above.
 
+---
+
+## Phase 13: Adversarial Red-Team Pipeline
+
+**Status:** 13.1, 13.2, and 13.3 implemented and gate-green (157 tests, ruff, mkdocs, changelog); moving to 13.4 (operator surfaces: CLI & dashboard).
+
+Autonomous agents frequently produce code that passes naive unit test suites through hardcoded branches, shortcut logic, or missing boundary checks. The Adversarial Pipeline introduces an automated, local-first Red-Team critic into the factory lifecycle to stress-test patches before human review.
+
+### 13.1 Domain Contracts & Evidence (`dark_factory.domain`)
+- [x] Add `AdversarialFinding(severity: str, category: str, summary: str, details: str)` and `AdversarialReport(passed: bool, summary: str, findings: list[AdversarialFinding])` dataclasses to `dark_factory/domain/types.py`.
+- [x] Add additive `adversarial_report: dict[str, Any] | None = None` to `EvidenceManifest` in `dark_factory/domain/types.py` (backwards-compatible with existing serialized manifests).
+- [x] Persist `adversarial.md` human-readable summary in `EvidenceLocker.save_run()` (`dark_factory/storage/evidence.py`).
+- [x] **Tests (`tests/test_domain.py`, `tests/test_storage.py`):** round-trip serialization of `AdversarialReport`, backwards compatibility of loading old manifests without the field.
+
+### 13.2 Local Adversarial Auditor Engine (`dark_factory.verification.adversarial`)
+- [x] Implement `AdversarialAuditor`: executes a structured red-team critic prompt via `LocalCoderHarness`.
+- [x] Auditor evaluates `diff.patch` against `TaskSpec` across 4 categories: `anti-cheating`, `boundary`, `security`, and `regression`.
+- [x] Prompt returns deterministic JSON parsing into `AdversarialReport`. Graceful fallback on malformed JSON to `severity="WARN", summary="Raw audit output"`.
+- [x] Zero-VRAM-conflict sequential execution: runs only *after* the coder finishes its healing loop and passes deterministic gates.
+- [x] **Tests (`tests/test_adversarial.py`):** audit on mock diffs with known anti-patterns (dummy return, path traversal, unbounded loop, clean fix); mock harness responses.
+
+### 13.3 Orchestrator Integration & Activity Pipeline (`dark_factory.orchestrator`)
+- [x] Add `activity_adversarial_audit(run_id, spec, sandbox, manifest)` in `dark_factory/orchestrator/activities.py`.
+- [x] Hook into `execute_run`: immediately after `VerificationRunner` exits 0 (and patch is non-empty), invoke `activity_adversarial_audit` before transitioning to `RunStatus.AWAITING_REVIEW`.
+- [x] Add optional task-level bypass `--no-adversarial` on CLI / `TaskSpec.skip_adversarial: bool = False`.
+- [x] **Tests (`tests/test_orchestrator.py`):** verify `activity_adversarial_audit` is invoked on green runs, skipped on failing runs, and its report is recorded in the manifest.
+
+### 13.4 Operator Surfaces: CLI & Dashboard Integration
+- [x] Update `dark-factory describe <RUN_ID>` (`dark_factory/cli.py`) to render the Red-Team report with severity badges (`CRITICAL`, `WARN`, `PASS`).
+- [x] Update `dark-factory review <RUN_ID>` to display the red-team findings summary prior to the approval prompt (`[y/N]`).
+- [x] Update `dark_factory/dashboard/views.py` to render the Adversarial Audit card in the run detail view.
+- [x] **Tests (`tests/test_cli.py`, `tests/test_dashboard_views.py`):** CLI and dashboard rendering of runs with clean vs warning adversarial reports.
+
+### 13.5 Active Adversarial Test Mutation (Tier 2)
+
+**Status:** plan approved; ready for implementation following test-first SDLC.
+
+Autonomous coding agents often produce code that passes naive unit test suites through hardcoded branches, shortcut logic, or missing boundary checks. Phase 13.5 extends the adversarial pipeline from passive diff analysis to active test mutation: synthesizing dynamic hostile unit tests (`test_adversarial_probe.py`), executing them against the sandbox, and feeding any failures into `SelfHealingLoop` so the coder must repair its implementation to satisfy both baseline and hostile edge cases.
+
+#### 13.5.1 Domain Contracts & Evidence (`dark_factory.domain`, `dark_factory.storage`)
+- [x] Add `TaskSpec.mutate_adversarial: bool = False` to `dark_factory/domain/types.py`.
+- [x] Add additive `adversarial_test_code: str | None = None` to `EvidenceManifest` in `dark_factory/domain/types.py`.
+- [x] Update `EvidenceLocker.save_run()` to persist `adversarial_test.py` when `manifest.adversarial_test_code` is present (`dark_factory/storage/evidence.py`).
+- [x] Update `EvidenceLocker.load_manifest()` to deserialize `adversarial_test_code` backwards-compatibly (`dark_factory/storage/evidence.py`).
+- [x] **Tests (`tests/test_domain.py`, `tests/test_storage.py`):** verify `TaskSpec.mutate_adversarial` defaults, `EvidenceManifest` serialization, and `EvidenceLocker` saving/loading `adversarial_test.py` and old manifests.
+
+#### 13.5.2 Local Adversarial Mutator Engine (`dark_factory.verification.adversarial_mutator`)
+- [x] Create `dark_factory/verification/adversarial_mutator.py` with `AdversarialMutator`.
+- [x] Implement hostile probe synthesis prompt instructing local QA/tester model to generate pytest tests covering boundary invariants, malicious/adversarial inputs, edge cases, and anti-cheating assertions against the modified functions in `diff.patch`.
+- [x] Implement `ast.parse` syntax validation to ensure generated test code is valid Python; safely return `None` or raise handled exception on malformed/invalid test code so the run degrades gracefully.
+- [x] Strip markdown backticks (e.g. ```python ... ```) safely from LLM response.
+- [x] **Tests (`tests/test_adversarial_mutator.py`):** test probe generation on mock diffs, syntax rejection of malformed code, clean parsing of markdown fences, and empty diff handling.
+
+#### 13.5.3 Orchestrator & Self-Healing Feedback Integration (`dark_factory.orchestrator`)
+- [x] Add `activity_adversarial_mutation(sandbox, harness, spec, manifest, status_callback, deadline)` in `dark_factory/orchestrator/activities.py`.
+- [x] Hook into `DurableEngine.execute_run` under traced phase `adversarial_mutation`: when `spec.mutate_adversarial` is enabled, baseline verification passed, and diff is non-empty, synthesize `test_adversarial_probe.py`.
+- [x] Run the adversarial probe in the sandbox. If probe fails (`exit_code != 0`), feed the failure into `SelfHealingLoop` with combined verification steps and `test_adversarial_probe.py` marked as protected.
+- [x] Clean up `test_adversarial_probe.py` from sandbox worktree before diff extraction so the host repo patch remains clean while the probe code is preserved in evidence.
+- [x] Plumb CLI flag `--mutate-adversarial` in `dark_factory/cli.py`.
+- [x] **Tests (`tests/test_orchestrator.py`, `tests/test_cli.py`):** test orchestrator executing adversarial probe, healing on probe failure, preserving evidence, CLI flag passing.
+
+#### 13.5.4 Operator Surfaces, Dashboard & Documentation
+- [x] Update `dark-factory describe <RUN_ID>` (`dark_factory/cli.py`) to display adversarial test status and preview generated probe code.
+- [x] Update `dark_factory/dashboard/views.py` to display the Mutated Adversarial Test card in run detail view with safe syntax highlighting/formatting.
+- [x] Update `CHANGELOG.md` under `[Unreleased]` with Phase 13.5 capabilities.
+- [x] Run full gate check (`python3 scripts/sdlc_check.py`).
+- [x] **Tests (`tests/test_cli.py`, `tests/test_dashboard_views.py`):** verify CLI describe and dashboard rendering with mutated test evidence.
+
+---
+
+## Phase 14: Split-Model Architecture (Planner vs Executor)
+
+Autonomous coding agents often make architectural errors or write premature/hacky code when a single model tries to perform high-level task decomposition, invariant discovery, and low-level code editing in a single prompt. Phase 14 splits the task into two sequential stages: a reasoning Planner session (`deepseek-r1:14b` or `qwen2.5-coder:14b`) followed by a code-specialized Executor session (`qwen2.5-coder:14b`).
+
+### 14.1 Domain Contracts & Evidence (`dark_factory.domain`, `dark_factory.storage`)
+- [x] Add `ExecutionPlan(plan_id: str, summary: str, invariants: list[str], steps: list[str], target_files: list[str], raw_plan: str)` dataclass to `dark_factory/domain/types.py`.
+- [x] Add additive `TaskSpec.planner_model: str | None = None` and `TaskSpec.skip_plan: bool = False` to `dark_factory/domain/types.py`.
+- [x] Add additive `execution_plan: ExecutionPlan | None = None` to `EvidenceManifest` in `dark_factory/domain/types.py`.
+- [x] Persist `plan.md` in `EvidenceLocker.save_run()` and reconstruct in `load_manifest()` (`dark_factory/storage/evidence.py`).
+- [x] **Tests (`tests/test_domain.py`, `tests/test_storage.py`):** round-trip serialization of `ExecutionPlan`, backwards compatibility with older manifests.
+
+
+### 14.2 Local Planner Engine (`dark_factory.planning`)
+- [x] Create `dark_factory/planning/planner.py` with `LocalPlanner`.
+- [x] Implement reasoning system prompt extracting problem analysis, architectural invariants, step-by-step strategy, and target files.
+- [x] Deterministic JSON parsing into `ExecutionPlan` with fail-safe fallback wrapping raw reasoning into a standard plan on malformed output.
+- [x] **Tests (`tests/test_planner.py`):** plan generation on mock repository contexts, JSON extraction, and fallback handling.
+
+### 14.3 Orchestrator Integration & Activity Pipeline (`dark_factory.orchestrator`)
+- [x] Add `activity_plan_task(run_id, spec, sandbox, harness)` in `dark_factory/orchestrator/activities.py`.
+- [x] Hook into `DurableEngine.execute_run`: execute `activity_plan_task` under traced phase `task_planning` before `activity_agent_execute`.
+- [x] Augment `activity_agent_execute` / `LocalCoderHarness` to accept `ExecutionPlan` and inject it into the coder prompt.
+- [x] Wire CLI flags `--planner-model` and `--no-plan` into `dark-factory run` (`dark_factory/cli.py`).
+- [x] **Tests (`tests/test_orchestrator.py`, `tests/test_cli.py`):** verify `activity_plan_task` executes, plan is recorded in manifest, `--no-plan` bypass works.
+
+### 14.4 Operator Surfaces: CLI & Dashboard Integration
+- [x] Update `dark-factory describe <RUN_ID>` (`dark_factory/cli.py`) to render `--- EXECUTION PLAN ---` with invariants, steps, and target files.
+- [x] Update `dark_factory/dashboard/views.py` to render the Execution Plan card with step checkboxes/badges and XSS-safe escaping.
+- [x] **Tests (`tests/test_cli.py`, `tests/test_dashboard_views.py`):** verify CLI and dashboard rendering of execution plans.
+
+
+
+
+## Phase 14.5: Review Remediation (Phase 13/14 independent review)
+
+**Status:** R1-R19 implemented (R14-R19 address the first independent re-review). Review findings 7 (num_ctx spec vs. code, planned in §10.15) and 9 (planner `target_files` unused) were deferred by the operator (tracked below). Review: round 1 = 13 findings (11 fixed, 2 open), round 2 = 13 findings on the fixes (R14-R19 fixed). R14-R19 were verified by tests only, not re-reviewed independently.
+
+- [x] R1. Dashboard: allowlist finding severity (`INFO/WARN/CRITICAL`, default `WARN`) at parse time and `escape()` the badge class (`views.py`, `adversarial.py`). Test: hostile severity renders no attribute injection.
+- [x] R2. Mutation phase: `cleanup_probe()` in `try/finally`; `RunTimeoutError` during mutation yields `TIMED_OUT` with diff/evidence preserved (`activities.py`, `engine.py`). Tests: exception and timeout mid-probe.
+- [x] R3. `AdversarialReport.passed` derived from findings (no WARN/CRITICAL), model flag ignored; spec states the audit is advisory (`adversarial.py`, `spec.md`).
+- [x] R4. Planner: strip `<think>...</think>`, extract the outermost JSON object, validate `steps`/`invariants`/`target_files` are lists of strings (`planner.py`).
+- [x] R5. Re-run baseline verification after the adversarial probe so a probe cannot alter source unverified; document the host-run limitation (`activities.py`, `engine.py`, `spec.md`).
+- [x] R6. Honour the deadline before planner/auditor/mutator model calls (`activities.py`).
+- [x] R8. Prompt fences: use a fence longer than any backtick run in the diff; make JSON fence extraction greedy-safe (`adversarial.py`, `adversarial_mutator.py`, `planner.py`).
+- [x] R10. Sanitise LLM text in `adversarial.md`/`plan.md` (table pipes, newlines) and strip ANSI/control chars in `describe`/`review` (`evidence.py`, `cli.py`).
+- [x] R11. `load_manifest` ignores unknown keys on `AdversarialFinding` (`evidence.py`).
+- [x] R12. Overall badge can be `CRITICAL`; `review` shows probe status (`cli.py`, `views.py`).
+- [x] R13. Tests: each item above has a red-first test; probe-written-then-removed assertion; `mutate_adversarial` with `skip_adversarial` false.
+- [x] R14. Engine: guard both `activity_adversarial_audit` call sites with `except RunTimeoutError` -> `finish_timed_out` (`engine.py`). Test through the engine.
+- [x] R15. `extract_json_object(raw, keys=...)` prefers the dict carrying the expected keys and strips an unclosed `<think>`; a `passed: false` verdict without findings yields a WARN finding (`llm_text.py`, `adversarial.py`, `planner.py`).
+- [x] R16. Mutator: dynamic fence, `<think>` stripping and line-anchored fence extraction (`llm_text.py`, `adversarial_mutator.py`).
+- [x] R17. Sanitising gaps: `clean_text` drops `\r`, C1 controls and bidi/line separators; `md_cell` escapes backslashes first; `plan.md` fields single-line and `raw_plan` fenced; `adversarial.md` summary via `md_cell`; `describe` cleans diff, notes and plan fields (`llm_text.py`, `evidence.py`, `cli.py`).
+- [x] R18. Deadline clamp works on a per-run copy of the harness instead of mutating the shared one (`activities.py`).
+- [x] R19. Post-probe baseline re-verification failure is reported as such and its step ids are suffixed `:reverify` (`activities.py`, `engine.py`); strengthen test_r5/r2/r8 assertions.
+- [ ] **Deferred (operator, 2026-10-01), review finding 7:** `spec.md` describes `num_ctx` clamping, pre-flight failure and truncation detection that the code does not have yet; planner, auditor and mutator call `_call_model` without `num_ctx`. Delivered by §10.15 (items 1 and 4); until then a large diff can be silently truncated by Ollama's default window.
+- [ ] **Deferred (operator, 2026-10-01), review finding 9:** the planner's `target_files` are displayed but not merged into `TaskSpec.target_files`. Wire them up only with path validation against the sandbox root (reject absolute paths and `..`).
+
+
+## Adversarial review follow-up — 2026-10-02
+
+Status: P0 complete (2026-10-02), authorized by operator selection “0”. Local Ollama coder drafts integrated with review corrections; no cloud endpoint called. Files: `dark_factory/verification/runner.py`, `dark_factory/sandbox/{base,worktree}.py`, `tests/test_runner_integrity.py`, spec and mirror, verification docs, changelog and review evidence. Red proof: original ignored pytest exploit before implementation; all 12 parametrized shadows, restoration-failure and application-import tests with the restoration call temporarily absent, each `sdlc_check.py --red` exited 0 for the missing protection. Source restored immediately afterward. Green: full `python3 scripts/sdlc_check.py` exited 0 with authorized local sockets (236 passed, 6 local-engine tests deselected; lint, format, strict docs, changelog PASS). Independent fresh local Llama 3.1 8B review: no findings; prior Qwen review was repetitive and inconclusive, not a clean review. Limits: declared runner imports and pytest bootstrap modules only; arbitrary transitive imports and host isolation remain outside scope. Next: operator selects P1 or P2; no shipping authorization.
+
+- [x] **P0 — trusted test runner:** define runner/import-path integrity in `spec.md`; update `dark_factory/verification/runner.py` and the relevant execution path in `dark_factory/sandbox/worktree.py`. Add `tests/test_runner_integrity.py` regression coverage with a real temporary worktree, failing baseline test and hostile `pytest.py`; verification must fail and execute the trusted runner. Check shadowing of other configured runners too. Close only after the gate and independent review.
+  Sandbox protocol support in `dark_factory/sandbox/base.py` will distinguish ignored runner-shadow cleanup from ordinary gate-file restoration, preserving unrelated local environments.
+- [ ] **P1 — strict audit schema:** update `dark_factory/verification/adversarial.py` to reject missing required fields, wrong boolean/list/item types and invalid schema as an unsuccessful audit with an explanatory finding. Add cases to `tests/test_adversarial.py` for summary-only JSON and string `"false"`; retain the findings-derived verdict and current advisory policy unless the operator changes the spec.
+- [ ] **P2 — host isolation evidence:** reconcile user-facing sandbox claims in `README.md`/`docs/architecture.md` with the existing `spec.md` isolation limit and planned §10.5 work. Record the synthetic outside-worktree write as evidence; do not mark stronger process isolation implemented.
+
+
+## Workspace SDLC unification — 2026-10-02
+
+Status: migration verification complete (2026-10-02). Full gate exited 0 in this session with authorized local socket access: 219 tests passed, 6 local-engine tests deselected; lint, format, docs and changelog passed. Workspace distribution checks: 2 passed. Prior independent migration review and re-review recorded below; this session changed verification records only. Earlier product work remains separate and uncommitted.
+
+- [x] U1. Install/update kit-owned runner, skills, hook and Cursor rule; normalize the process in `AGENTS.md` and harness adapters. Evidence: `.sdlc/test_unification.py` compares all eight projects to the kit.
+- [x] U2. Configure `sdlc.toml` without dropping existing checks; preserve project-specific helpers and red-mode error handling. Evidence: migrated gate-helper tests where present, gate CLI smoke and configuration validation.
+- [x] U3. Update process references, `REVIEW.md`, changelog and documentation mirrors where applicable. Run the full project gate; record pass/fail/skip evidence and obtain independent review. No checkbox closes on partial checks alone.
+
+### Codex migration evidence — 2026-10-02
+
+Status: shared process, kit distribution, project profiles, Codex adapters, review policy and CI implemented under the operator request. Existing product-version CI remains. Workspace distribution checks: 2 passed. Independent read-only review found two migration defects (legacy Python bootstrap and lint comparison-base forwarding); both reproduced red, fixed and re-reviewed with no new findings. Actual Python 3.8/3.9 was unavailable; bootstrap regression uses simulated old builtin typing behavior.
+
+Verification: Gate exit 1: 210 passed, 6 local-engine tests deselected; one E2E failure and 8 dashboard errors from socket PermissionError. Lint, format, docs, changelog PASS; docs mirrors fixed and verified.
+
+Follow-up verification (2026-10-02): `python3 scripts/sdlc_check.py` initially reproduced the socket restriction above, then exited 0 with explicitly authorized execution outside the sandbox: 219 passed, 6 local-engine tests deselected; lint, format, docs and changelog PASS. `python3 ../.sdlc/test_unification.py` exited 0 (2 passed). U1–U3 closed after this complete gate. Real-engine checks were not run; no commits, pushes or releases. Earlier adversarial remediation remains in its own plan phase.

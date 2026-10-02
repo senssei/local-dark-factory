@@ -5,7 +5,13 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Fixed (Phase 14.5 review remediation)
+- Adversarial audit: severity allowlisted (dashboard XSS), verdict derived from findings, `CRITICAL` overall badge, LLM text sanitised in CLI output and evidence files, tolerant manifest loading.
+- Planner/auditor/mutator: `<think>` blocks and prose around JSON handled, field types validated, prompt fences cannot be closed by diff content, model calls clamped to the run deadline.
+- Adversarial mutation: probe cleanup on every exit path, deadline during mutation ends as `TIMED_OUT`, baseline gates re-run after the probe.
+
 ### Security
+- Python verification runner modules and pytest bootstrap imports are restored before gates, including ignored module/package/bytecode shadows. Explicit protected test paths retain this protection; restoration errors stop gate execution.
 - Verification gate protection now also covers test-runner configuration (`pyproject.toml`, `setup.cfg`, `.coveragerc`, and `conftest.py` / `sitecustomize.py` / `usercustomize.py` at any depth). Previously an agent could weaken the gates by editing them.
 - `GitWorktreeSandbox.write_file` rejects any path inside `.git` (worktree `gitdir:` pointer hijack).
 - `review --approve` refuses to apply a patch onto files with uncommitted changes, so it can no longer commit the operator's work-in-progress.
@@ -34,7 +40,13 @@ All notable changes to this project are documented in this file. The format foll
 - `test_default_gate_paths_does_not_protect_lint_target` / `test_default_gate_paths_lint_step_alone_still_protects_baseline`: regression coverage for the lint-target gate-protection fix above.
 - **`dark-factory eval`**: a repeatable real-model benchmark suite (`primes`, `calculator`, `textutils`, `csvparse` scenarios, extracted from `tests/test_e2e.py`'s real-model fixtures into `dark_factory.eval.scenarios` so both share one implementation). Drives each scenario through a real local model, `--repeat N` times, and reports per-scenario convergence rate, average healing attempts, and whether the stuck-detector fired. Runs land in a separate `.factory/eval-runs/` journal, never the main run history. Reports are saved as JSON under `.factory/evals/<timestamp>.json`.
 - **`dark-factory dashboard`**: a local, read-only web dashboard for browsing run history, evidence, and eval reports. Built entirely on the Python standard library (`http.server`) — no new dependency. Binds `127.0.0.1` only (no host flag); every non-`GET` request returns `405`. Run detail pages render the unified diff with GitHub-style add/removed line highlighting (`render_diff`).
-- `EvidenceManifest.repeated_failure_streak` exposes the self-healing stuck-detector's final count directly (previously only inferable from `operator_notes` text); `dark-factory describe` prints it when non-zero.
+- **Adversarial Red-Team Pipeline contracts & storage**: Added `AdversarialFinding` and `AdversarialReport` domain contracts, added `EvidenceManifest.adversarial_report` (backwards-compatible with legacy manifests), and updated `EvidenceLocker.save_run` to persist `adversarial.md` summaries alongside the evidence locker.
+- **Local Adversarial Auditor Engine & Orchestrator Integration**: Added `AdversarialAuditor` in `dark_factory.verification.adversarial`, executing structured red-team prompts across 4 dimensions (`anti-cheating`, `boundary`, `security`, `regression`); hooked `activity_adversarial_audit` into `DurableEngine.execute_run` as an audited phase timing (`adversarial_audit`) on green runs, with `--no-adversarial` CLI bypass.
+- **Adversarial Red-Team Operator Surfaces**: `dark-factory describe` renders the Red-Team report with severity badges (`CRITICAL`, `WARN`, `PASS`) and category details; `dark-factory review` displays the adversarial audit findings prior to recording review decisions (and supports interactive `[y/N]` prompt in interactive sessions); and the local dashboard (`render_run_detail`) renders the Adversarial Audit card with severity badge styles and XSS-safe escaping.
+- **Split-Model Architecture (Planner vs Executor)**: Decoupled high-level reasoning and architectural decomposition from code generation into two sequential phases. Added `LocalPlanner` in `dark_factory.planning`, `ExecutionPlan` domain contract, traced `task_planning` activity in `DurableEngine.execute_run`, `--planner-model` and `--no-plan` CLI options, `plan.md` evidence persistence, and rendering in `dark-factory describe` and the local dashboard.
+- **Active Adversarial Test Mutation (Tier 2)**: Added `AdversarialMutator` (`dark_factory.verification.adversarial_mutator`) to synthesize dynamic hostile pytest unit tests (`test_adversarial_probe.py`) probing boundary conditions, edge cases, and anti-cheating violations. Hooked into `DurableEngine.execute_run` under traced phase `adversarial_mutation` when `--mutate-adversarial` / `TaskSpec.mutate_adversarial` is enabled; probe failures feed back into `SelfHealingLoop` to drive code repair. Preserved generated probe code in `EvidenceManifest.adversarial_test_code` and saved as `adversarial_test.py` in the evidence locker, while cleaning up ephemeral probe files from the sandbox worktree to keep the host repository patch clean. Rendered in `dark-factory describe` and the local dashboard.
+
+
 
 ### Fixed
 - `SelfHealingLoop` now detects when a repair attempt fails with the exact same verification outcome as the previous attempt (byte-identical gate/exit code/stdout/stderr, normalized to ignore embedded wall-clock durations like pytest's own "in 0.03s" summary) and adds a `STUCK NOTICE` to the next repair prompt telling the model its current approach isn't working and to try a fundamentally different one — root-caused from a real run where a local model reproduced the same conceptual bug across all 5 healing attempts. A plain exhausted-retries `FAILED` run's `operator_notes` (previously left unset) now says whether it died from a repeated identical failure or from different failures each time, and `EvidenceManifest.repeated_failure_streak` exposes the count directly (`dark-factory describe` prints it).
@@ -90,3 +102,8 @@ First public release of **Sovereign Dark Factory** (`local-dark-factory`).
 
 [Unreleased]: https://github.com/senssei/local-dark-factory/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/senssei/local-dark-factory/releases/tag/v0.1.0
+
+## SDLC unification — 2026-10-02
+
+- Adopt the shared local-sdlc-kit runner and Codex workflow through AGENTS.md and .agents/skills, retaining project-specific checks in sdlc.toml.
+- Document independent review, existing operator authorization and truthful reporting of blocked checks.

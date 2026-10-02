@@ -1,0 +1,8 @@
+---
+description: Development process (AI-native SDLC) and project rules
+alwaysApply: true
+---
+
+Follow `AGENTS.md` at the repository root: it defines the development process (intent, spec, plan, test, code, review), the gate
+(`python3 scripts/sdlc_check.py`) and the project rules. The stage skills are in `.agents/skills/<name>/SKILL.md`; read
+`.agents/skills/sdlc/SKILL.md` first, it finds the current stage from `plan.md` and git.

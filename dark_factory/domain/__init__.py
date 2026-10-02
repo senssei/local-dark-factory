@@ -12,7 +12,10 @@ from dark_factory.domain.errors import (
     WorktreeCreationError,
 )
 from dark_factory.domain.types import (
+    AdversarialFinding,
+    AdversarialReport,
     EvidenceManifest,
+    ExecutionPlan,
     ModelTelemetry,
     RunStatus,
     StepExecution,
@@ -21,8 +24,11 @@ from dark_factory.domain.types import (
 )
 
 __all__ = [
+    "AdversarialFinding",
+    "AdversarialReport",
     "DarkFactoryError",
     "EvidenceManifest",
+    "ExecutionPlan",
     "HarnessError",
     "LocalEngineOfflineError",
     "ModelTelemetry",

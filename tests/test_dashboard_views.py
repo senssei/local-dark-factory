@@ -201,3 +201,105 @@ def test_render_eval_view_shows_latest_summary_and_history():
     assert "primes" in html
     assert "History" in html
     assert "yes" in html  # latest (report2) has any_stuck=True
+
+
+def test_render_run_detail_shows_adversarial_report_clean():
+    from dark_factory.domain.types import AdversarialReport
+
+    manifest = _manifest(
+        adversarial_report=AdversarialReport(
+            passed=True,
+            summary="Zero adversarial findings detected.",
+            findings=[],
+        )
+    )
+    html = render_run_detail(manifest, "")
+    assert "Adversarial Audit" in html
+    assert "PASS" in html
+    assert "Zero adversarial findings detected." in html
+    assert "No adversarial findings" in html
+
+
+def test_render_run_detail_shows_adversarial_report_with_findings_and_escapes():
+    from dark_factory.domain.types import AdversarialFinding, AdversarialReport
+
+    manifest = _manifest(
+        adversarial_report=AdversarialReport(
+            passed=False,
+            summary="Critical cheating pattern detected.",
+            findings=[
+                AdversarialFinding(
+                    severity="CRITICAL",
+                    category="anti-cheating",
+                    summary="<script>alert('cheat')</script>",
+                    details="Unsafe <injection> detected in <code> logic.",
+                ),
+                AdversarialFinding(
+                    severity="WARN",
+                    category="boundary",
+                    summary="Off-by-one boundary flaw",
+                    details="Negative bounds not checked.",
+                ),
+            ],
+        )
+    )
+    html = render_run_detail(manifest, "")
+    assert "Adversarial Audit" in html
+    assert "WARN" in html
+    assert "Critical cheating pattern detected." in html
+    assert "CRITICAL" in html
+    assert "anti-cheating" in html
+    assert "<script>alert('cheat')</script>" not in html
+    assert "&lt;script&gt;alert(&#x27;cheat&#x27;)&lt;/script&gt;" in html
+    assert "&lt;injection&gt;" in html
+    assert "Off-by-one boundary flaw" in html
+
+
+def test_render_run_detail_hides_adversarial_card_when_none():
+    manifest = _manifest(adversarial_report=None)
+    html = render_run_detail(manifest, "")
+    assert "Adversarial Audit" not in html
+
+
+def test_render_run_detail_shows_execution_plan_and_escapes():
+    from dark_factory.domain.types import ExecutionPlan
+
+    manifest = _manifest(
+        execution_plan=ExecutionPlan(
+            plan_id="plan-xss",
+            summary="<script>alert('plan')</script>",
+            invariants=["<invariant>safe</invariant>"],
+            steps=["1. <step>one</step>"],
+            target_files=["<target>.py"],
+        )
+    )
+    html = render_run_detail(manifest, "")
+    assert "Execution Plan" in html
+    assert "<script>alert('plan')</script>" not in html
+    assert "&lt;script&gt;alert(&#x27;plan&#x27;)&lt;/script&gt;" in html
+    assert "&lt;invariant&gt;safe&lt;/invariant&gt;" in html
+    assert "&lt;step&gt;one&lt;/step&gt;" in html
+    assert "&lt;target&gt;.py" in html
+
+
+def test_render_run_detail_hides_execution_plan_when_none():
+    manifest = _manifest(execution_plan=None)
+    html = render_run_detail(manifest, "")
+    assert "Execution Plan" not in html
+
+
+def test_render_run_detail_shows_active_mutation_and_escapes():
+    manifest = _manifest(
+        adversarial_test_code="def test_xss():\n    assert '<script>bad</script>' != ''\n",
+    )
+    html = render_run_detail(manifest, "")
+    assert "Active Adversarial Mutation" in html
+    assert "Probe Synthesized" in html
+    assert "<script>bad</script>" not in html
+    assert "&lt;script&gt;bad&lt;/script&gt;" in html
+
+
+def test_render_run_detail_hides_active_mutation_when_none():
+    manifest = _manifest(adversarial_test_code=None)
+    html = render_run_detail(manifest, "")
+    assert "Active Adversarial Mutation" not in html

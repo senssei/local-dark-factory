@@ -1,0 +1,28 @@
+name: Shared SDLC
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Prepare project tools
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -e ".[dev,docs]"
+      - name: Run full project gate
+        env:
+          SDLC_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD' }}
+        run: |
+          if [ "$SDLC_BASE" = "0000000000000000000000000000000000000000" ]; then SDLC_BASE=HEAD; fi
+          export SDLC_BASE
+          python3 scripts/sdlc_check.py --base "$SDLC_BASE"

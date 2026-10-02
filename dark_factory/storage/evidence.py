@@ -10,12 +10,26 @@ from pathlib import Path
 
 from dark_factory.domain.errors import RunNotFoundError
 from dark_factory.domain.types import (
+    AdversarialFinding,
+    AdversarialReport,
     EvidenceManifest,
+    ExecutionPlan,
     ModelTelemetry,
     PhaseTiming,
     RunStatus,
     StepExecution,
 )
+from dark_factory.harness.llm_text import clean_text, fence, md_cell
+
+
+def _finding_from_dict(data: dict) -> AdversarialFinding:
+    """Build a finding from stored JSON, ignoring keys written by newer versions."""
+    return AdversarialFinding(
+        severity=data.get("severity", "WARN"),
+        category=data.get("category", "boundary"),
+        summary=data.get("summary", ""),
+        details=data.get("details", ""),
+    )
 
 
 class EvidenceLocker:
@@ -54,6 +68,66 @@ class EvidenceLocker:
             telem_file = run_folder / "telemetry.json"
             telem_file.write_text(json.dumps(asdict(manifest.model_telemetry), indent=2), encoding="utf-8")
 
+        # Write adversarial.md
+        if manifest.adversarial_report:
+            adv_file = run_folder / "adversarial.md"
+            status_badge = "PASSED" if manifest.adversarial_report.passed else "WARNINGS DETECTED"
+            lines = [
+                "# Adversarial Red-Team Report",
+                "",
+                f"**Status:** {status_badge}",
+                f"**Summary:** {md_cell(manifest.adversarial_report.summary)}",
+                "",
+            ]
+            if manifest.adversarial_report.findings:
+                lines.extend(
+                    [
+                        "## Findings",
+                        "",
+                        "| Severity | Category | Summary | Details |",
+                        "|---|---|---|---|",
+                    ]
+                )
+                for f in manifest.adversarial_report.findings:
+                    lines.append(
+                        f"| {f.severity} | {md_cell(f.category)} | {md_cell(f.summary)} | {md_cell(f.details)} |"
+                    )
+            adv_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        # Write plan.md if execution plan is present
+        if manifest.execution_plan:
+            plan_file = run_folder / "plan.md"
+            plan = manifest.execution_plan
+            lines = [
+                f"# Execution Plan: {plan.plan_id}",
+                "",
+                f"**Summary:** {md_cell(plan.summary)}",
+                "",
+            ]
+            if plan.invariants:
+                lines.extend(["## Architectural Invariants", ""])
+                for inv in plan.invariants:
+                    lines.append(f"- {md_cell(inv)}")
+                lines.append("")
+            if plan.steps:
+                lines.extend(["## Implementation Steps", ""])
+                for step in plan.steps:
+                    lines.append(f"- {md_cell(step)}")
+                lines.append("")
+            if plan.target_files:
+                lines.extend(["## Target Files", ""])
+                for tf in plan.target_files:
+                    lines.append(f"- `{md_cell(tf).replace(chr(96), chr(39))}`")
+                lines.append("")
+            if plan.raw_plan:
+                lines.extend(["## Raw Reasoning", "", fence(clean_text(plan.raw_plan)), ""])
+            plan_file.write_text("\n".join(lines), encoding="utf-8")
+
+        # Write adversarial_test.py if adversarial test code is present
+        if manifest.adversarial_test_code:
+            adv_test_file = run_folder / "adversarial_test.py"
+            adv_test_file.write_text(manifest.adversarial_test_code, encoding="utf-8")
+
         # Write manifest.json
         manifest_file = run_folder / "manifest.json"
         manifest_data = asdict(manifest)
@@ -81,6 +155,28 @@ class EvidenceLocker:
         verification_results = [StepExecution(**step) for step in data.get("verification_results", [])]
         phase_timings = [PhaseTiming(**pt) for pt in data.get("phase_timings", [])]
 
+        adv_report = None
+        if data.get("adversarial_report"):
+            ar_data = data["adversarial_report"]
+            findings = [_finding_from_dict(f) for f in ar_data.get("findings", [])]
+            adv_report = AdversarialReport(
+                passed=ar_data.get("passed", False),
+                summary=ar_data.get("summary", ""),
+                findings=findings,
+            )
+
+        execution_plan = None
+        if data.get("execution_plan"):
+            ep_data = data["execution_plan"]
+            execution_plan = ExecutionPlan(
+                plan_id=ep_data.get("plan_id", ""),
+                summary=ep_data.get("summary", ""),
+                invariants=ep_data.get("invariants", []),
+                steps=ep_data.get("steps", []),
+                target_files=ep_data.get("target_files", []),
+                raw_plan=ep_data.get("raw_plan", ""),
+            )
+
         return EvidenceManifest(
             run_id=data["run_id"],
             status=status,
@@ -98,6 +194,9 @@ class EvidenceLocker:
             operator_notes=data.get("operator_notes"),
             phase_timings=phase_timings,
             repeated_failure_streak=data.get("repeated_failure_streak", 0),
+            adversarial_report=adv_report,
+            execution_plan=execution_plan,
+            adversarial_test_code=data.get("adversarial_test_code"),
         )
 
     def load_patch(self, run_id: str) -> str:

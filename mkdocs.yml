@@ -62,6 +62,7 @@ nav:
   - Architecture: architecture.md
   - Local Inference: local-inference.md
   - Verification & Healing: verification-gates.md
+  - Adversarial Pipeline: adversarial-pipeline.md
   - CLI: cli.md
   - AI-Native SDLC:
       - Intent & Vision: sdlc/intent.md

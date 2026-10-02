@@ -33,6 +33,10 @@ pre { background: #171a21; padding: 1rem; overflow-x: auto; border-radius: 6px; 
 .field { margin: 0.25rem 0; }
 .field b { color: #9ca3af; display: inline-block; min-width: 11rem; }
 .badge-stuck { color: #f87171; font-weight: 600; }
+.badge-pass { background: #0b3b1e; color: #34d399; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+.badge-warn { background: #3b2f0b; color: #fbbf24; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+.badge-critical { background: #3b0b0b; color: #f87171; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
+.badge-info { background: #1e293b; color: #94a3b8; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; }
 pre.diff {
     padding: 0.5rem 0; line-height: 1.6; font-size: 0.9rem;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
@@ -159,6 +163,27 @@ def render_run_detail(manifest: EvidenceManifest, patch: str) -> str:
             f'<div class="field"><b>Cloud Cost:</b> ${t.cost_usd:.2f}</div>'
         )
 
+    plan_html = ""
+    if manifest.execution_plan:
+        plan = manifest.execution_plan
+        invariants_html = (
+            "".join(f"<li><code>{escape(inv)}</code></li>" for inv in plan.invariants)
+            if plan.invariants
+            else "<li>None</li>"
+        )
+        steps_html = "".join(f"<li>{escape(step)}</li>" for step in plan.steps) if plan.steps else "<li>None</li>"
+        files_html = (
+            ", ".join(f"<code>{escape(tf)}</code>" for tf in plan.target_files) if plan.target_files else "None"
+        )
+        plan_html = (
+            "<h2>Execution Plan</h2>"
+            f'<div class="field"><b>Plan ID:</b> {escape(plan.plan_id)}</div>'
+            f'<div class="field"><b>Summary:</b> {escape(plan.summary)}</div>'
+            f'<div class="field"><b>Target Files:</b> {files_html}</div>'
+            f"<h3>Architectural Invariants</h3><ul>{invariants_html}</ul>"
+            f"<h3>Implementation Steps</h3><ul>{steps_html}</ul>"
+        )
+
     gates_html = "<p>No verification gates recorded.</p>"
     if manifest.verification_results:
         rows = []
@@ -166,6 +191,36 @@ def render_run_detail(manifest: EvidenceManifest, patch: str) -> str:
             outcome = "PASSED" if res.passed else f"FAILED (exit {res.exit_code})"
             rows.append(f"<li><code>{escape(res.step_id)}</code>: {escape(outcome)} ({res.duration_sec:.2f}s)</li>")
         gates_html = f"<ul>{''.join(rows)}</ul>"
+
+    adv_html = ""
+    if manifest.adversarial_report:
+        adv = manifest.adversarial_report
+        overall = adv.badge
+        overall_badge = f'<span class="badge-{overall.lower()}">{overall}</span>'
+        findings_html = "<p>No adversarial findings recorded.</p>"
+        if adv.findings:
+            rows = []
+            for f in adv.findings:
+                sev_cls = f"badge-{escape(f.severity.lower(), quote=True)}"
+                badge = f'<span class="{sev_cls}">{escape(f.severity)}</span>'
+                details_html = f"<br><small>{escape(f.details)}</small>" if f.details else ""
+                rows.append(
+                    f"<tr><td>{badge}</td><td><code>{escape(f.category)}</code></td>"
+                    f"<td><b>{escape(f.summary)}</b>{details_html}</td></tr>"
+                )
+            findings_html = (
+                "<table><thead><tr><th>Severity</th><th>Category</th><th>Details</th></tr></thead>"
+                f"<tbody>{''.join(rows)}</tbody></table>"
+            )
+        adv_html = f"<h2>Adversarial Audit {overall_badge}</h2><p>{escape(adv.summary)}</p>{findings_html}"
+
+    mutation_html = ""
+    if manifest.adversarial_test_code:
+        mutation_html = (
+            "<h2>Active Adversarial Mutation</h2>"
+            '<span class="badge-pass">Probe Synthesized</span>'
+            f"<pre><code>{escape(manifest.adversarial_test_code)}</code></pre>"
+        )
 
     timings_html = ""
     if manifest.phase_timings:
@@ -177,7 +232,10 @@ def render_run_detail(manifest: EvidenceManifest, patch: str) -> str:
     return (
         f"{fields_html}"
         f"{telemetry_html}"
+        f"{plan_html}"
         f"<h2>Verification Gates</h2>{gates_html}"
+        f"{adv_html}"
+        f"{mutation_html}"
         f"{timings_html}"
         f"<h2>Unified Diff</h2>{diff_html}"
     )

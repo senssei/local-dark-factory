@@ -94,10 +94,31 @@ class VerificationRunner:
                     and not arg_clean.startswith("-")
                     and arg_clean not in _RUNNER_LITERALS
                     and not arg_clean.endswith(".exe")
+                    and arg_clean != "test_adversarial_probe.py"
                 ):
                     paths.add(arg_clean)
         paths.update(_DEFAULT_PROTECTED_PATHS)
         paths.update(f":(glob)**/{name}" for name in _DEFAULT_PROTECTED_ANYWHERE)
+        return sorted(paths)
+
+    def detect_runner_paths(self) -> list[str]:
+        modules = set()
+        for step in self.steps:
+            argv = step.argv
+            if not argv:
+                continue
+            executable = Path(argv[0]).name
+            if executable.startswith("python") and "-m" in argv:
+                i = argv.index("-m") + 1
+                if i < len(argv) and all(part.isidentifier() for part in argv[i].split(".")):
+                    modules.add(argv[i].split(".")[0])
+            elif Path(argv[0]).stem in {"pytest", "ruff", "flake8", "pylint", "mypy", "pyright", "black", "isort"}:
+                modules.add(Path(argv[0]).stem)
+        if "pytest" in modules:
+            modules.update({"_pytest", "pluggy"})
+        paths = set()
+        for name in modules:
+            paths.update({name, name + ".py", name + ".pyc", f":(glob)__pycache__/{name}.*.pyc"})
         return sorted(paths)
 
     def run(self, sandbox: Sandbox, deadline: float | None = None) -> VerificationOutcome:
@@ -128,6 +149,9 @@ class VerificationRunner:
         if not self.allow_gate_edits and hasattr(sandbox, "restore_paths"):
             paths_to_protect = self.protected_paths or self.detect_default_gate_paths()
             restored = sandbox.restore_paths(paths_to_protect, rev=self.base_rev)
+            restored = sorted(
+                set(restored + sandbox.restore_runner_paths(self.detect_runner_paths(), rev=self.base_rev))
+            )
 
         executions = []
 

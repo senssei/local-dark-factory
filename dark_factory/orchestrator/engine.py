@@ -25,10 +25,13 @@ from dark_factory.domain.types import (
 from dark_factory.harness.base import AgentHarness
 from dark_factory.harness.local_coder import LocalCoderHarness
 from dark_factory.orchestrator.activities import (
+    activity_adversarial_audit,
+    activity_adversarial_mutation,
     activity_apply_patch,
     activity_cleanup_sandbox,
     activity_create_sandbox,
     activity_execute_task_and_verify,
+    activity_plan_task,
     activity_preserve_evidence,
 )
 from dark_factory.storage.evidence import EvidenceLocker
@@ -207,21 +210,7 @@ class DurableEngine:
                     base_dir=self.storage_dir / "sandboxes",
                 )
 
-            # 2. Run Agent & Verification Loop
-            update_state(RunStatus.AGENT_RUNNING)
-            try:
-                with _trace(manifest, "agent_and_verify"):
-                    passed, healing_attempts, executions, telemetry, repeated_failure_streak = (
-                        activity_execute_task_and_verify(
-                            sandbox=sandbox,
-                            harness=harness,
-                            spec=spec,
-                            status_callback=update_state,
-                            deadline=deadline,
-                        )
-                    )
-                manifest.repeated_failure_streak = repeated_failure_streak
-            except RunTimeoutError as timeout:
+            def finish_timed_out(timeout: RunTimeoutError) -> EvidenceManifest:
                 manifest.status = RunStatus.TIMED_OUT
                 manifest.operator_notes = f"Run exceeded its {spec.timeout_minutes:g} minute deadline."
                 timeout_diff = self._best_effort_diff(sandbox)
@@ -240,6 +229,40 @@ class DurableEngine:
                 self.locker.save_run(manifest, patch_content=timeout_diff)
                 update_state(RunStatus.TIMED_OUT, {"reason": "deadline_exceeded"})
                 return manifest
+
+            # 2. Run Planning Session (if not skip_plan)
+            plan = None
+            if not spec.skip_plan:
+                try:
+                    with _trace(manifest, "task_planning"):
+                        plan = activity_plan_task(
+                            run_id=run_id,
+                            spec=spec,
+                            sandbox=sandbox,
+                            manifest=manifest,
+                            harness=harness,
+                            deadline=deadline,
+                        )
+                except RunTimeoutError as timeout:
+                    return finish_timed_out(timeout)
+
+            # 3. Run Agent & Verification Loop
+            update_state(RunStatus.AGENT_RUNNING)
+            try:
+                with _trace(manifest, "agent_and_verify"):
+                    passed, healing_attempts, executions, telemetry, repeated_failure_streak = (
+                        activity_execute_task_and_verify(
+                            sandbox=sandbox,
+                            harness=harness,
+                            spec=spec,
+                            status_callback=update_state,
+                            deadline=deadline,
+                            plan=plan,
+                        )
+                    )
+                manifest.repeated_failure_streak = repeated_failure_streak
+            except RunTimeoutError as timeout:
+                return finish_timed_out(timeout)
 
             # 3. Assess Result. Verification exit codes decide; a no-op is never a success.
             with _trace(manifest, "diff_extract"):
@@ -263,6 +286,87 @@ class DurableEngine:
                         f"Verification failed after exhausting {healing_attempts} healing attempt(s); each "
                         "attempt failed differently."
                     )
+            elif spec.mutate_adversarial:
+                # 3.1. Active Adversarial Test Mutation Gate
+                try:
+                    with _trace(manifest, "adversarial_mutation"):
+                        mut_passed, mut_attempts, mut_execs, mut_telem = activity_adversarial_mutation(
+                            sandbox=sandbox,
+                            harness=harness,
+                            spec=spec,
+                            manifest=manifest,
+                            diff=diff,
+                            status_callback=update_state,
+                            deadline=deadline,
+                            healing_attempts_so_far=healing_attempts,
+                        )
+                except RunTimeoutError as timeout:
+                    timeout.executions = executions + timeout.executions
+                    timeout.healing_attempts += healing_attempts
+                    timeout.telemetry = timeout.telemetry or telemetry
+                    return finish_timed_out(timeout)
+                executions.extend(mut_execs)
+                healing_attempts += mut_attempts
+                if mut_telem and telemetry:
+                    telemetry.prompt_tokens += mut_telem.prompt_tokens
+                    telemetry.completion_tokens += mut_telem.completion_tokens
+                    telemetry.total_tokens += mut_telem.total_tokens
+                    telemetry.duration_sec = round(telemetry.duration_sec + mut_telem.duration_sec, 3)
+                elif mut_telem:
+                    telemetry = mut_telem
+
+                if not mut_passed:
+                    passed = False
+                    final_status = RunStatus.FAILED
+                    reverify_failed = any(ex.step_id.endswith(":reverify") and not ex.passed for ex in executions)
+                    manifest.operator_notes = (
+                        "Verification failed: baseline gates failed after the adversarial probe ran "
+                        "(post-probe re-verification); the probe may have altered the sources."
+                        if reverify_failed
+                        else f"Verification failed: adversarial probe test failed after {healing_attempts} healing attempt(s)."
+                    )
+                else:
+                    # Re-extract diff in case healing modified files
+                    with _trace(manifest, "diff_extract"):
+                        diff = sandbox.get_diff()
+                    if not spec.skip_adversarial:
+                        # 3.2. Adversarial Red-Team Audit Gate (on verified final diff)
+                        gate_summary_lines = [
+                            f"[{ex.step_id}] {'PASSED' if ex.passed else 'FAILED'}" for ex in executions
+                        ]
+                        try:
+                            with _trace(manifest, "adversarial_audit"):
+                                activity_adversarial_audit(
+                                    spec=spec,
+                                    diff=diff,
+                                    manifest=manifest,
+                                    harness=harness,
+                                    gate_summary="\n".join(gate_summary_lines),
+                                    deadline=deadline,
+                                )
+                        except RunTimeoutError as timeout:
+                            timeout.executions = executions + timeout.executions
+                            timeout.healing_attempts += healing_attempts
+                            timeout.telemetry = timeout.telemetry or telemetry
+                            return finish_timed_out(timeout)
+            elif not spec.skip_adversarial:
+                # 3.1. Adversarial Red-Team Audit Gate (only on verified, non-empty patches)
+                gate_summary_lines = [f"[{ex.step_id}] {'PASSED' if ex.passed else 'FAILED'}" for ex in executions]
+                try:
+                    with _trace(manifest, "adversarial_audit"):
+                        activity_adversarial_audit(
+                            spec=spec,
+                            diff=diff,
+                            manifest=manifest,
+                            harness=harness,
+                            gate_summary="\n".join(gate_summary_lines),
+                            deadline=deadline,
+                        )
+                except RunTimeoutError as timeout:
+                    timeout.executions = executions + timeout.executions
+                    timeout.healing_attempts += healing_attempts
+                    timeout.telemetry = timeout.telemetry or telemetry
+                    return finish_timed_out(timeout)
 
             # 4. Preserve evidence BEFORE the durable status transition, so a crash can never leave a
             #    review-pending run without its evidence (recover() reconciles the opposite window).

@@ -50,6 +50,10 @@ Before verification executes:
 4. Verification runs against the true, original tests.
 5. If the agent attempted tampering, a `SECURITY NOTICE` is appended to the repair prompt.
 
+Python runner imports receive additional protection even with explicit `protected_paths`. For Python `-m` commands, the top-level module is protected; recognized console tools (`pytest`, `ruff`, `flake8`, `pylint`, `mypy`, `pyright`, `black`, `isort`) receive the same protection. Pytest also protects `_pytest` and `pluggy`. Runner modules, packages, legacy bytecode and matching root `__pycache__` entries are restored to the trusted baseline or removed if new, including ignored files. If restoration fails, the gate does not execute. Unrelated ignored files such as local environments remain outside this cleanup.
+
+Tests still import edited application code. `allow_gate_edits` bypasses runner protection as well as ordinary gate restoration. This protects declared runner imports and pytest bootstrap modules; it does not cover arbitrary transitive imports, shell-script runner behavior or host process isolation.
+
 ---
 
 ## 🔄 Self-Healing Loop
@@ -72,3 +76,9 @@ Please analyze the errors in the context of the original task and generate the c
 - **Prompt Retention**: The original prompt is preserved so the model does not drift from requirements.
 - **Telemetry Aggregation**: Total tokens and elapsed execution time are summed across all attempts.
 - **Syntactic Retry**: Responses that fail to generate proper file blocks are counted as a retry rather than an unhandled crash.
+
+---
+
+## 🛡️ Beyond Passing Gates: Adversarial Red-Teaming
+
+Passing deterministic unit tests is necessary but not sufficient: an agent might write code that satisfies tests via trivial branches or misses critical boundary conditions. Before patches are presented to the operator, they undergo automated red-teaming. See [Adversarial Pipeline](adversarial-pipeline.md) for how the factory audits green patches for cheating, boundary defects, and security risks.

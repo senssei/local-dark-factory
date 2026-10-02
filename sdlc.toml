@@ -1,48 +1,31 @@
-# Gate configuration for scripts/sdlc_check.py. Project-owned: edit freely.
-# Every command runs through the shell from the repository root; exit 0 means pass.
-
-base = "main"            # ref the diff is taken from (changelog check, review)
-# shell = false           # opt-in, project-wide: run every `run` as argv instead (no shell, no `$VAR`/glob expansion).
-                          # Override per [[check]] or on [red] with their own `shell = true` / `shell = false`.
+# Project-owned checks; shared runner installed from local-sdlc-kit.
+base = "main"
+shell = false
 
 [[check]]
 name = "tests"
-run = "pytest tests/ -q"
-# skip_if_missing = "mkdocs"        # optional: SKIP instead of FAIL when this executable is not installed
-# shell = false                     # optional, this check only: `run` is split (quoting, no expansion) and run directly
+run = ".venv/bin/python -m pytest tests/ -m 'not local_engine' -q"
+timeout = 300
 
 [[check]]
 name = "lint"
-run = "ruff check ."
+run = ".venv/bin/python -m ruff check ."
 
 [[check]]
 name = "format"
-run = "ruff format --check ."
+run = ".venv/bin/python -m ruff format --check ."
 
 [[check]]
 name = "docs"
-run = "mkdocs build --strict"
-skip_if_missing = "mkdocs"
+run = ".venv/bin/python -m mkdocs build --strict"
+skip_if_missing = ".venv/bin/mkdocs"
 
-[changelog]                          # optional: remove the section to disable the check
+[changelog]
 file = "CHANGELOG.md"
-runtime_paths = ["dark_factory/"]             # a change under these paths requires `file` to change too
+runtime_paths = ["dark_factory/"]
 
-[red]                                # red-first: how to run exactly one test; {id} is replaced by the id
-run = "python3 -m pytest -x -q {id}"
+[red]
+run = ".venv/bin/python -m pytest -x -q {id}"
 timeout = 60
-# shell = false             # optional: {id} becomes one argv element, no quoting needed, no shell involved
-# Under the default shell = true, do not put {id} inside quotes in `run`: it is already shell-quoted.
-# Test ids that start with "-" cannot be passed to --red.
-not_found = ["no tests ran", "^ERROR: (file or directory )?not found"]   # regexes; output matching one means "test not found", which is not red.
-                                     # Keep them narrow: a pattern that also matches a genuine failure message hides a red test.
-ignore = ["^FAILED\\b", "^\\d+ (failed|passed)", "^=+ "]   # regexes for summary/decoration lines that must never be shown as the failure reason
-
-# Examples for [red] (delete what you do not need). Exit 126/127 and death by signal are never red.
-#   unittest:  run = "python3 -m unittest {id}"     not_found = ["Ran 0 tests", "_FailedTest"]
-#              ignore = ["^FAILED\\b", "^Ran \\d+ tests?", "^-{5,}", "^={5,}"]
-#   pytest:    run = "python3 -m pytest -x -q {id}" not_found = ["no tests ran", "^ERROR: (file or directory )?not found"]
-#              ignore = ["^FAILED\\b", "^\\d+ (failed|passed)", "^=+ "]
-#   go:        run = "go test ./... -run {id}"      not_found = ["no tests to run"]      # ids are regexes: use a name like TestFoo
-#   npm/jest:  run = "npx jest -t {id}"             not_found = ["No tests found"]
-#   cargo:     run = "cargo test {id}"              not_found = []   # "running 0 tests" is printed for every target without a match: do not use it
+not_found = ["no tests ran", "^ERROR: (file or directory )?not found", "ERROR collecting"]
+ignore = ["^FAILED\\b", "^\\d+ (failed|passed)", "^=+ ", "^={3,}", "^!+"]

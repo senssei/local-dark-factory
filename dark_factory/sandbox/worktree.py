@@ -265,6 +265,44 @@ class GitWorktreeSandbox(Sandbox):
 
         return restored
 
+    def _runner_git(self, args: list[str]) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=self.sandbox_dir, capture_output=True, text=True, errors="replace", check=True
+        ).stdout.strip()
+
+    def restore_runner_paths(self, paths: list[str], rev: str | None = None) -> list[str]:
+        if not self._created:
+            raise SandboxError("Sandbox not created")
+
+        target_rev = rev or self._base_sha or "HEAD"
+        restored = []
+
+        for p in paths:
+            try:
+                changed = self._runner_git(["diff", target_rev, "--name-only", "--", p])
+                untracked = self._runner_git(["ls-files", "--others", "--", p])
+
+                if not changed and not untracked:
+                    continue
+
+                if self._runner_git(["ls-files", "--cached", "--", p]):
+                    self._runner_git(["restore", "--source=" + target_rev, "--staged", "--worktree", "--", p])
+
+                self._runner_git(["clean", "-fdx", "--", p])
+
+                changed = self._runner_git(["diff", target_rev, "--name-only", "--", p])
+                untracked = self._runner_git(["ls-files", "--others", "--", p])
+
+                if changed or untracked:
+                    raise SandboxError(f"Runner restoration incomplete: {p}")
+
+                restored.append(p)
+
+            except subprocess.CalledProcessError as exc:
+                raise SandboxError(f"Runner restoration failed: {exc.stderr}") from exc
+
+        return restored
+
     def destroy(self) -> None:
         """Destroy the worktree and clean up files idempotently."""
         if not self._created and not self.sandbox_dir.exists():

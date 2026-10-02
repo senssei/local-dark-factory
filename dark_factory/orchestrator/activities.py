@@ -7,26 +7,36 @@ is registered in this release.
 
 from __future__ import annotations
 
+import copy
 import re
 import subprocess
+import sys
+import time
 from collections.abc import Callable
+from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from dark_factory.domain.errors import DarkFactoryError
+from dark_factory.domain.errors import DarkFactoryError, RunTimeoutError
 from dark_factory.domain.types import (
+    AdversarialReport,
     EvidenceManifest,
+    ExecutionPlan,
     ModelTelemetry,
     RunStatus,
     StepExecution,
     TaskSpec,
+    VerificationStep,
 )
 from dark_factory.harness.base import AgentHarness
 from dark_factory.sandbox.base import Sandbox
 from dark_factory.sandbox.worktree import GitWorktreeSandbox
 from dark_factory.storage.evidence import EvidenceLocker
+from dark_factory.verification.adversarial import AdversarialAuditor
+from dark_factory.verification.adversarial_mutator import AdversarialMutator
 from dark_factory.verification.healing import SelfHealingLoop
-from dark_factory.verification.runner import VerificationRunner
+from dark_factory.verification.runner import VerificationOutcome, VerificationRunner
 
 
 def activity_create_sandbox(
@@ -44,12 +54,94 @@ def activity_create_sandbox(
     return sandbox
 
 
+@contextmanager
+def _clamped_harness(owner: object, deadline: float | None):
+    """Point `owner.harness` at a per-run copy whose per-call timeout is capped to the remaining deadline.
+
+    The shared harness is never mutated, so concurrent runs cannot corrupt each other's timeout.
+    Raises RunTimeoutError if the deadline has already passed.
+    """
+    if deadline is None:
+        yield
+        return
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise RunTimeoutError("Run deadline exceeded before an LLM call could start.")
+    original = owner.harness  # type: ignore[attr-defined]
+    clamped = copy.copy(original)
+    current = getattr(original, "timeout", None)
+    if isinstance(current, (int, float)):
+        clamped.timeout = max(1, min(current, int(remaining)))
+    owner.harness = clamped  # type: ignore[attr-defined]
+    try:
+        yield
+    finally:
+        owner.harness = original  # type: ignore[attr-defined]
+
+
+def activity_plan_task(
+    run_id: str,
+    spec: TaskSpec,
+    sandbox: Sandbox,
+    manifest: EvidenceManifest,
+    harness: AgentHarness | None = None,
+    deadline: float | None = None,
+) -> ExecutionPlan | None:
+    """Execute the reasoning planner to produce an ExecutionPlan before code generation."""
+    if spec.skip_plan:
+        return None
+    if deadline is not None and time.monotonic() >= deadline:
+        raise RunTimeoutError("Run deadline exceeded before task planning.")
+
+    from dark_factory.harness.local_coder import LocalCoderHarness
+    from dark_factory.planning.planner import LocalPlanner
+
+    planner_model = spec.planner_model or spec.model
+    if isinstance(harness, LocalCoderHarness) and harness.model == planner_model:
+        planner_harness = harness
+    elif isinstance(harness, LocalCoderHarness):
+        planner_harness = LocalCoderHarness(model=planner_model)
+    elif harness is not None and not hasattr(harness, "_call_model"):
+        plan = ExecutionPlan(
+            plan_id=f"plan-{run_id}",
+            summary="Deterministic execution plan",
+            invariants=[],
+            steps=[],
+            target_files=[],
+        )
+        manifest.execution_plan = plan
+        return plan
+    else:
+        planner_harness = LocalCoderHarness(model=planner_model)
+
+    planner = LocalPlanner(harness=planner_harness)
+
+    # Lightweight repository context
+    context = ""
+    try:
+        res = sandbox.execute(["git", "ls-files"])
+        if res.passed and res.stdout.strip():
+            context = f"Files in repository:\n{res.stdout.strip()[:1000]}"
+    except Exception:
+        pass
+
+    with _clamped_harness(planner, deadline):
+        plan = planner.generate_plan(
+            task_prompt=spec.task_prompt,
+            context=context,
+            plan_id=f"plan-{run_id}",
+        )
+    manifest.execution_plan = plan
+    return plan
+
+
 def activity_execute_task_and_verify(
     sandbox: Sandbox,
     harness: AgentHarness,
     spec: TaskSpec,
     status_callback: Callable[[RunStatus], None] | None = None,
     deadline: float | None = None,
+    plan: ExecutionPlan | None = None,
 ) -> tuple[bool, int, list[StepExecution], ModelTelemetry | None, int]:
     """Execute code generation and deterministic verification with self-healing."""
     runner = VerificationRunner(
@@ -61,10 +153,23 @@ def activity_execute_task_and_verify(
     )
     healer = SelfHealingLoop(max_retries=spec.max_healing_attempts)
 
+    initial_prompt = spec.task_prompt
+    if plan and plan.summary:
+        invariants_block = "\n".join(f"- {inv}" for inv in plan.invariants) if plan.invariants else "None specified"
+        steps_block = "\n".join(f"- {step}" for step in plan.steps) if plan.steps else "None specified"
+        initial_prompt = (
+            f"{spec.task_prompt}\n\n"
+            f"=== ARCHITECTURAL EXECUTION PLAN ===\n"
+            f"Summary: {plan.summary}\n"
+            f"Invariants:\n{invariants_block}\n"
+            f"Implementation Steps:\n{steps_block}\n"
+            f"Follow this plan strictly and make the minimal necessary changes."
+        )
+
     passed, healing_attempts, executions, telemetry, repeated_failure_streak = healer.run_loop(
         sandbox=sandbox,
         harness=harness,
-        initial_prompt=spec.task_prompt,
+        initial_prompt=initial_prompt,
         verification_runner=runner,
         status_callback=status_callback,
         deadline=deadline,
@@ -280,3 +385,167 @@ def activity_cleanup_sandbox(sandbox: Sandbox) -> None:
         sandbox.destroy()
     except Exception:
         pass
+
+
+def activity_adversarial_audit(
+    spec: TaskSpec,
+    diff: str,
+    manifest: EvidenceManifest,
+    harness: AgentHarness | None = None,
+    auditor: AdversarialAuditor | None = None,
+    gate_summary: str = "",
+    deadline: float | None = None,
+) -> AdversarialReport | None:
+    """Execute adversarial red-team audit on the generated diff before human review."""
+    if spec.skip_adversarial:
+        return None
+
+    if auditor is None:
+        from dark_factory.harness.local_coder import LocalCoderHarness
+
+        if harness is not None and not isinstance(harness, LocalCoderHarness) and not hasattr(harness, "_call_model"):
+            report = AdversarialReport(passed=True, summary="Deterministic audit passed.", findings=[])
+            manifest.adversarial_report = report
+            return report
+        auditor = AdversarialAuditor(harness=harness)  # type: ignore[arg-type]
+
+    with _clamped_harness(auditor, deadline):
+        report = auditor.audit_patch(
+            task_prompt=spec.task_prompt,
+            patch=diff,
+            gate_summary=gate_summary,
+        )
+    manifest.adversarial_report = report
+    return report
+
+
+def activity_adversarial_mutation(
+    sandbox: Sandbox,
+    harness: AgentHarness,
+    spec: TaskSpec,
+    manifest: EvidenceManifest,
+    diff: str,
+    status_callback: Callable[[RunStatus], None] | None = None,
+    deadline: float | None = None,
+    mutator: AdversarialMutator | None = None,
+    healer: SelfHealingLoop | None = None,
+    healing_attempts_so_far: int = 0,
+) -> tuple[bool, int, list[StepExecution], ModelTelemetry | None]:
+    """Synthesize active hostile unit tests to probe the patch and heal if probe fails."""
+    if not spec.mutate_adversarial or not diff.strip():
+        return True, 0, [], None
+
+    from dark_factory.harness.local_coder import LocalCoderHarness
+    from dark_factory.verification.adversarial_mutator import AdversarialMutator
+
+    if mutator is None:
+        mut_harness = harness if isinstance(harness, LocalCoderHarness) else LocalCoderHarness(model=spec.model)
+        mutator = AdversarialMutator(harness=mut_harness)
+
+    # Lightweight context
+    context = ""
+    try:
+        res = sandbox.execute(["git", "ls-files"])
+        if res.passed and res.stdout.strip():
+            context = f"Files in repository:\n{res.stdout.strip()[:1000]}"
+    except Exception:
+        pass
+
+    with _clamped_harness(mutator, deadline):
+        probe_code = mutator.generate_probe(task_prompt=spec.task_prompt, patch=diff, context=context)
+    if not probe_code:
+        # Graceful fallback: syntax error or generation failure in probe
+        return True, 0, [], None
+
+    manifest.adversarial_test_code = probe_code
+    probe_path = "test_adversarial_probe.py"
+    sandbox.write_file(probe_path, probe_code.encode("utf-8"))
+
+    # Probe step
+    probe_step = VerificationStep(
+        id="adversarial_probe",
+        argv=[sys.executable, "-m", "pytest", probe_path],
+        timeout_sec=60,
+    )
+    combined_steps = list(spec.verification_steps) + [probe_step]
+
+    class AdversarialVerificationRunner(VerificationRunner):
+        def run(self, sbox: Sandbox, deadline: float | None = None) -> VerificationOutcome:
+            sbox.write_file(probe_path, probe_code.encode("utf-8"))
+            return super().run(sbox, deadline=deadline)
+
+    runner = AdversarialVerificationRunner(
+        steps=combined_steps,
+        allow_no_verify=spec.allow_no_verify,
+        protected_paths=spec.protected_paths,
+        allow_gate_edits=spec.allow_gate_edits,
+        base_rev=spec.base_rev,
+    )
+
+    def cleanup_probe():
+        try:
+            sandbox.restore_paths([probe_path])
+        except Exception:
+            pass
+        if hasattr(sandbox, "path"):
+            try:
+                (Path(sandbox.path) / probe_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    def reverify_baseline() -> tuple[bool, list[StepExecution]]:
+        """Re-run only the baseline gates on the final tree: the probe is LLM-authored code and must not
+        be able to change the sources after they were verified."""
+        base_runner = VerificationRunner(
+            steps=list(spec.verification_steps),
+            allow_no_verify=spec.allow_no_verify,
+            protected_paths=spec.protected_paths,
+            allow_gate_edits=spec.allow_gate_edits,
+            base_rev=spec.base_rev,
+        )
+        base_outcome = base_runner.run(sandbox, deadline=deadline)
+        return base_outcome.passed, [replace(ex, step_id=f"{ex.step_id}:reverify") for ex in base_outcome.executions]
+
+    try:
+        outcome = runner.run(sandbox, deadline=deadline)
+        executions = list(outcome.executions)
+        attempts_used = 0
+        telemetry: ModelTelemetry | None = None
+        passed = outcome.passed
+
+        if not passed:
+            # Probe failed!
+            remaining_retries = spec.max_healing_attempts - healing_attempts_so_far
+            if remaining_retries <= 0:
+                return False, 0, executions, None
+
+            if healer is None:
+                healer = SelfHealingLoop(max_retries=remaining_retries)
+
+            repair_prompt = (
+                f"ORIGINAL TASK:\n{spec.task_prompt}\n\n"
+                "Your previous implementation passed baseline verification, but an adversarial red-team stress test "
+                f"found defects:\n\n{outcome.error_summary}\n\n"
+                "Fix the application code to satisfy the requirements and pass all tests (baseline and adversarial).\n"
+                "Provide complete file contents formatted in ```file:<path> ... ``` blocks."
+            )
+
+            passed, attempts, healed_executions, telemetry, _streak = healer.run_loop(
+                sandbox=sandbox,
+                harness=harness,
+                initial_prompt=repair_prompt,
+                verification_runner=runner,
+                status_callback=status_callback,
+                deadline=deadline,
+            )
+            executions += healed_executions
+            attempts_used = attempts + 1
+
+        if passed:
+            cleanup_probe()
+            baseline_ok, baseline_execs = reverify_baseline()
+            executions += baseline_execs
+            passed = baseline_ok
+        return passed, attempts_used, executions, telemetry
+    finally:
+        cleanup_probe()

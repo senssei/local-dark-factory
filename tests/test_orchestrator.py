@@ -9,6 +9,7 @@ import pytest
 
 from dark_factory.domain.errors import DarkFactoryError, WorkflowStateError
 from dark_factory.domain.types import (
+    EvidenceManifest,
     ModelTelemetry,
     RunStatus,
     TaskSpec,
@@ -635,7 +636,14 @@ def test_execute_run_records_phase_timings(mock_repo: Path, tmp_path: Path):
     manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-phase-timings")
 
     phases = {pt.phase for pt in manifest.phase_timings}
-    assert phases == {"sandbox_create", "agent_and_verify", "diff_extract", "evidence_preserve"}
+    assert phases == {
+        "sandbox_create",
+        "task_planning",
+        "agent_and_verify",
+        "diff_extract",
+        "adversarial_audit",
+        "evidence_preserve",
+    }
     assert all(pt.duration_sec >= 0 for pt in manifest.phase_timings)
     assert all(pt.started_at for pt in manifest.phase_timings)
 
@@ -663,7 +671,7 @@ def test_timed_out_run_records_phase_timings(mock_repo: Path, tmp_path: Path):
     manifest = engine.execute_run(spec=spec, harness=SlowHarness(), run_id="run-phase-timings-timeout")
 
     phases = {pt.phase for pt in manifest.phase_timings}
-    assert phases == {"sandbox_create", "agent_and_verify", "evidence_preserve"}
+    assert phases == {"sandbox_create", "task_planning", "agent_and_verify", "evidence_preserve"}
 
 
 def test_cancelled_run_records_phase_timings(mock_repo: Path, tmp_path: Path):
@@ -783,3 +791,388 @@ def test_concurrent_review_run_serializes_git_mutations(mock_repo: Path, tmp_pat
 
     status = subprocess.run(["git", "status", "--porcelain"], cwd=mock_repo, capture_output=True, text=True)
     assert status.stdout.strip() == ""
+
+
+def test_adversarial_audit_executed_on_green_run(mock_repo: Path, tmp_path: Path):
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="fix calc add function",
+        verification_steps=_passing_gate(),
+    )
+    manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-adv-green")
+
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert manifest.adversarial_report is not None
+    assert (tmp_path / ".factory" / "runs" / "run-adv-green" / "adversarial.md").exists()
+    phases = {pt.phase for pt in manifest.phase_timings}
+    assert "adversarial_audit" in phases
+
+
+def test_adversarial_audit_skipped_when_flag_set(mock_repo: Path, tmp_path: Path):
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="fix calc add function",
+        verification_steps=_passing_gate(),
+        skip_adversarial=True,
+    )
+    manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-adv-skip")
+
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert manifest.adversarial_report is None
+    phases = {pt.phase for pt in manifest.phase_timings}
+    assert "adversarial_audit" not in phases
+
+
+def test_adversarial_audit_skipped_on_empty_patch(mock_repo: Path, tmp_path: Path):
+    class NoOpHarness(AgentHarness):
+        def execute_task(self, sandbox, task_prompt, target_files=None):
+            return HarnessResult(success=True, modified_files=[])
+
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="do nothing",
+        verification_steps=_passing_gate(),
+    )
+    manifest = engine.execute_run(spec=spec, harness=NoOpHarness(), run_id="run-adv-empty")
+
+    assert manifest.status == RunStatus.FAILED
+    assert manifest.adversarial_report is None
+    phases = {pt.phase for pt in manifest.phase_timings}
+    assert "adversarial_audit" not in phases
+
+
+def test_orchestrator_executes_task_planning(mock_repo: Path, tmp_path: Path):
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="fix calc add function",
+        verification_steps=_passing_gate(),
+    )
+    manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-plan-exec")
+
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert manifest.execution_plan is not None
+    assert manifest.execution_plan.summary != ""
+    phases = {pt.phase for pt in manifest.phase_timings}
+    assert "task_planning" in phases
+
+
+def test_orchestrator_skips_task_planning_when_flag_set(mock_repo: Path, tmp_path: Path):
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="fix calc add function",
+        verification_steps=_passing_gate(),
+        skip_plan=True,
+    )
+    manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-plan-skip")
+
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert manifest.execution_plan is None
+    phases = {pt.phase for pt in manifest.phase_timings}
+    assert "task_planning" not in phases
+
+
+def test_adversarial_mutation_executed_and_passes(mock_repo: Path, tmp_path: Path, monkeypatch):
+    from dark_factory.verification.adversarial_mutator import AdversarialMutator
+
+    monkeypatch.setattr(
+        AdversarialMutator,
+        "generate_probe",
+        lambda self, task_prompt, patch, context="": "def test_probe(): assert True\n",
+    )
+
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="fix calc add function",
+        verification_steps=_passing_gate(),
+        mutate_adversarial=True,
+        skip_plan=True,
+        skip_adversarial=True,
+    )
+    manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-mut-green")
+
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert manifest.adversarial_test_code == "def test_probe(): assert True\n"
+    assert (tmp_path / ".factory" / "runs" / "run-mut-green" / "adversarial_test.py").exists()
+    phases = {pt.phase for pt in manifest.phase_timings}
+    assert "adversarial_mutation" in phases
+    patch = engine.locker.load_patch("run-mut-green")
+    assert "test_adversarial_probe.py" not in patch
+
+
+def test_adversarial_mutation_fails_and_triggers_healing(mock_repo: Path, tmp_path: Path, monkeypatch):
+    from dark_factory.verification.adversarial_mutator import AdversarialMutator
+
+    monkeypatch.setattr(
+        AdversarialMutator,
+        "generate_probe",
+        lambda self, task_prompt, patch, context="": (
+            "from calc import add\ndef test_probe():\n    assert add(0, 0) == 0\n"
+        ),
+    )
+
+    attempt_count = 0
+
+    class HealingHarness(AgentHarness):
+        def execute_task(self, sandbox, task_prompt, target_files=None):
+            nonlocal attempt_count
+            attempt_count += 1
+            if attempt_count == 1:
+                sandbox.write_file("calc.py", b"def add(a, b):\n    return 5\n")
+            else:
+                sandbox.write_file("calc.py", b"def add(a, b):\n    return a + b\n")
+            return HarnessResult(success=True, modified_files=["calc.py"])
+
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="fix calc add function",
+        verification_steps=[
+            VerificationStep(id="pytest", argv=[sys.executable, "-m", "pytest", "test_calc.py"]),
+        ],
+        mutate_adversarial=True,
+        skip_plan=True,
+        skip_adversarial=True,
+        max_healing_attempts=3,
+    )
+    manifest = engine.execute_run(spec=spec, harness=HealingHarness(), run_id="run-mut-heal")
+
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert manifest.healing_attempts >= 1
+    assert manifest.adversarial_test_code is not None
+    phases = {pt.phase for pt in manifest.phase_timings}
+    assert "adversarial_mutation" in phases
+    patch = engine.locker.load_patch("run-mut-heal")
+    assert "test_adversarial_probe.py" not in patch
+
+
+# --- Phase 14.5 review remediation -------------------------------------------------------------
+
+
+def test_r2_timeout_during_mutation_is_timed_out_and_probe_not_in_patch(mock_repo: Path, tmp_path: Path, monkeypatch):
+    from dark_factory.domain.errors import RunTimeoutError
+    from dark_factory.orchestrator import activities
+    from dark_factory.verification.adversarial_mutator import AdversarialMutator
+
+    monkeypatch.setattr(
+        AdversarialMutator,
+        "generate_probe",
+        lambda self, task_prompt, patch, context="": (
+            "from calc import add\ndef test_probe():\n    assert add(0, 0) == 0\n"
+        ),
+    )
+
+    original = activities.SelfHealingLoop.run_loop
+
+    def _raise_timeout_for_probe(self, *args, **kwargs):
+        if "adversarial red-team" in kwargs.get("initial_prompt", ""):
+            raise RunTimeoutError("deadline", healing_attempts=1)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(activities.SelfHealingLoop, "run_loop", _raise_timeout_for_probe)
+
+    class BuggyHarness(AgentHarness):
+        def execute_task(self, sandbox, task_prompt, target_files=None):
+            sandbox.write_file("calc.py", b"def add(a, b):\n    return a + b + (a == 0)\n")
+            return HarnessResult(success=True, modified_files=["calc.py"])
+
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="fix calc add function",
+        verification_steps=[VerificationStep(id="pytest", argv=[sys.executable, "-m", "pytest", "test_calc.py"])],
+        mutate_adversarial=True,
+        skip_plan=True,
+        skip_adversarial=True,
+        max_healing_attempts=3,
+    )
+    manifest = engine.execute_run(spec=spec, harness=BuggyHarness(), run_id="run-mut-timeout")
+
+    assert manifest.status == RunStatus.TIMED_OUT
+    assert "test_adversarial_probe.py" not in engine.locker.load_patch("run-mut-timeout")
+
+
+def test_r5_probe_that_breaks_baseline_gate_fails_the_run(mock_repo: Path, tmp_path: Path, monkeypatch):
+    from dark_factory.verification.adversarial_mutator import AdversarialMutator
+
+    probe = "def test_probe():\n    open('calc.py', 'w').write('def add(a, b):\\n    return 99\\n')\n    assert True\n"
+    monkeypatch.setattr(AdversarialMutator, "generate_probe", lambda self, task_prompt, patch, context="": probe)
+
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="fix calc add function",
+        verification_steps=[VerificationStep(id="pytest", argv=[sys.executable, "-m", "pytest", "test_calc.py"])],
+        mutate_adversarial=True,
+        skip_plan=True,
+        skip_adversarial=True,
+    )
+    manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-mut-tamper")
+
+    assert manifest.status == RunStatus.FAILED
+
+
+def test_r6_planner_and_auditor_model_calls_are_clamped_to_the_deadline(mock_repo: Path, tmp_path: Path):
+    import time
+
+    from dark_factory.harness.local_coder import LocalCoderHarness
+    from dark_factory.orchestrator.activities import activity_adversarial_audit, activity_plan_task
+
+    seen: list[float] = []
+
+    class RecordingHarness(LocalCoderHarness):
+        def _call_model(self, system_prompt, user_prompt):
+            seen.append(self.timeout)
+            return '{"summary": "s", "findings": []}', None
+
+    harness = RecordingHarness(timeout=600)
+    spec = TaskSpec(repo_path=str(mock_repo), task_prompt="t", verification_steps=_passing_gate())
+    manifest = EvidenceManifest(run_id="r", status=RunStatus.AGENT_RUNNING, repo_path=".", base_rev="x", created_at="t")
+    sandbox = _NullSandbox()
+
+    deadline = time.monotonic() + 30
+    activity_plan_task("r", spec, sandbox, manifest, harness=harness, deadline=deadline)
+    activity_adversarial_audit(spec, "+x\n", manifest, harness=harness, deadline=deadline)
+
+    assert len(seen) == 2 and all(t <= 30 for t in seen)
+    assert harness.timeout == 600
+
+
+def test_r6_planning_past_the_deadline_raises_run_timeout(mock_repo: Path):
+    import time
+
+    from dark_factory.domain.errors import RunTimeoutError
+    from dark_factory.orchestrator.activities import activity_plan_task
+
+    spec = TaskSpec(repo_path=str(mock_repo), task_prompt="t", verification_steps=_passing_gate())
+    manifest = EvidenceManifest(run_id="r", status=RunStatus.AGENT_RUNNING, repo_path=".", base_rev="x", created_at="t")
+    with pytest.raises(RunTimeoutError):
+        activity_plan_task("r", spec, _NullSandbox(), manifest, deadline=time.monotonic() - 1)
+
+
+class _NullSandbox:
+    def execute(self, argv, timeout_sec=None):
+        class _R:
+            passed = False
+            stdout = ""
+
+        return _R()
+
+
+def test_r13_mutation_runs_probe_step_then_audit_on_final_diff(mock_repo: Path, tmp_path: Path, monkeypatch):
+    from dark_factory.verification.adversarial_mutator import AdversarialMutator
+
+    monkeypatch.setattr(
+        AdversarialMutator,
+        "generate_probe",
+        lambda self, task_prompt, patch, context="": "def test_probe(): assert True\n",
+    )
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="fix calc add function",
+        verification_steps=_passing_gate(),
+        mutate_adversarial=True,
+        skip_plan=True,
+    )
+    manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-mut-audit")
+
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert "adversarial_probe" in {ex.step_id for ex in manifest.verification_results}
+    assert manifest.adversarial_report is not None
+    assert {"adversarial_mutation", "adversarial_audit"} <= {pt.phase for pt in manifest.phase_timings}
+
+
+def test_r13_probe_failure_with_no_healing_budget_fails_the_run(mock_repo: Path, tmp_path: Path, monkeypatch):
+    from dark_factory.verification.adversarial_mutator import AdversarialMutator
+
+    monkeypatch.setattr(
+        AdversarialMutator,
+        "generate_probe",
+        lambda self, task_prompt, patch, context="": "def test_probe(): assert False\n",
+    )
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="fix calc add function",
+        verification_steps=_passing_gate(),
+        mutate_adversarial=True,
+        skip_plan=True,
+        skip_adversarial=True,
+        max_healing_attempts=0,
+    )
+    manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-mut-nobudget")
+
+    assert manifest.status == RunStatus.FAILED
+    assert "test_adversarial_probe.py" not in engine.locker.load_patch("run-mut-nobudget")
+
+
+def test_r14_timeout_in_adversarial_audit_is_timed_out_not_crashed(mock_repo: Path, tmp_path: Path, monkeypatch):
+    from dark_factory.domain.errors import RunTimeoutError
+    from dark_factory.orchestrator import engine as engine_module
+
+    def _expired(*args, **kwargs):
+        raise RunTimeoutError("deadline")
+
+    monkeypatch.setattr(engine_module, "activity_adversarial_audit", _expired)
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="fix calc add function",
+        verification_steps=_passing_gate(),
+        skip_plan=True,
+    )
+    manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-audit-timeout")
+
+    assert manifest.status == RunStatus.TIMED_OUT
+    assert (tmp_path / ".factory" / "runs" / "run-audit-timeout" / "diff.patch").exists()
+
+
+def test_r18_clamp_does_not_touch_the_shared_harness(mock_repo: Path):
+    import time
+
+    from dark_factory.harness.local_coder import LocalCoderHarness
+    from dark_factory.orchestrator.activities import activity_plan_task
+
+    observed: list[float] = []
+
+    class RecordingHarness(LocalCoderHarness):
+        def _call_model(self, system_prompt, user_prompt):
+            observed.append(self.timeout)
+            observed.append(shared.timeout)
+            return '{"summary": "s"}', None
+
+    shared = RecordingHarness(timeout=600)
+    spec = TaskSpec(repo_path=str(mock_repo), task_prompt="t", verification_steps=_passing_gate())
+    manifest = EvidenceManifest(run_id="r", status=RunStatus.AGENT_RUNNING, repo_path=".", base_rev="x", created_at="t")
+    activity_plan_task("r", spec, _NullSandbox(), manifest, harness=shared, deadline=time.monotonic() + 30)
+
+    assert observed[0] <= 30
+    assert observed[1] == 600
+
+
+def test_r19_probe_tampering_is_reported_as_reverification_failure(mock_repo: Path, tmp_path: Path, monkeypatch):
+    from dark_factory.verification.adversarial_mutator import AdversarialMutator
+
+    probe = "def test_probe():\n    open('calc.py', 'w').write('def add(a, b):\\n    return 99\\n')\n    assert True\n"
+    monkeypatch.setattr(AdversarialMutator, "generate_probe", lambda self, task_prompt, patch, context="": probe)
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="fix calc add function",
+        verification_steps=[VerificationStep(id="pytest", argv=[sys.executable, "-m", "pytest", "test_calc.py"])],
+        mutate_adversarial=True,
+        skip_plan=True,
+        skip_adversarial=True,
+    )
+    manifest = engine.execute_run(spec=spec, harness=MockRepairHarness(), run_id="run-mut-tamper2")
+
+    assert manifest.status == RunStatus.FAILED
+    assert "re-verification" in manifest.operator_notes
+    ids = [ex.step_id for ex in manifest.verification_results]
+    assert ids[-1] == "pytest:reverify"

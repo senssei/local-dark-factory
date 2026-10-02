@@ -60,3 +60,17 @@ The human operator transitions from a "boilerplate typist" to an **AI Factory Ma
 - [x] **HITL Review**: Operator can inspect and approve/reject patches with a single command.
 - [ ] **Repeatable Model Eval**: Operator can run a standardized suite of real-model tasks (`dark-factory eval`) and get a structured, comparable report of self-healing convergence — without hand-rolling a throwaway script each time.
 - [ ] **Local Observability**: Operator can browse run history, evidence, and eval reports in a local, read-only dashboard (`dark-factory dashboard`) — no write actions from the UI, no dependency beyond the Python standard library, bound to `127.0.0.1` only.
+
+
+## Adversarial review — 2026-10-02
+
+Scope: targeted documentation and code review with selected adversarial probes; not an exhaustive audit. Probes used synthetic data and temporary directories. Findings below describe the reviewed working tree, including pre-existing uncommitted changes. Recording this review does not mean a fix was implemented or independently re-reviewed.
+
+- **Confirmed — verification runner shadowing.** In a temporary git worktree with `tests/test_fail.py` containing `assert False`, adding a root `pytest.py` that only prints a message caused a `python -m pytest` verification step to return `passed=True`. `dark_factory/verification/runner.py` protects tests/configuration but not this runner-shadowing module.
+- **Confirmed — malformed audit response passes.** `AdversarialAuditor._parse_response` in `dark_factory/verification/adversarial.py` returned `passed=True` for both `{"summary":"ok"}` and `{"passed":"false","findings":[],"summary":"bad"}`. Required fields and types are not strictly validated. The audit is advisory under the current spec; this finding concerns the false success report, not an asserted mandatory approval barrier.
+- **Known isolation limit, reproduced.** `GitWorktreeSandbox.execute` wrote a synthetic marker outside its worktree. `spec.md` already states that worktrees isolate repository changes, not host processes; this is a known limitation, not a newly discovered escape from a promised OS sandbox.
+- Assessment: restore trust in verification evidence before increasing autonomy. No full factory evaluation or real-model run was performed.
+
+### Codex SDLC — 2026-10-02
+
+Operator requested a shared SDLC across 01–08, adapted to Codex. Preserve project outcomes and constraints; use AGENTS.md, .agents/skills and explicit project gates. Existing authorization covers this migration; it does not approve adversarial remediation, commits, pushes or releases.

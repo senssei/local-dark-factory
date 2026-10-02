@@ -5,7 +5,7 @@ description: Entry point for the project's AI-native SDLC (intent, spec, plan, t
 
 # SDLC router
 
-Work moves through **intent -> spec -> plan -> test -> code -> review**. The state is in committed files (`intent.md`,
+Work moves through **intent -> spec -> plan -> test -> code -> review**. The state is in versioned files (`intent.md`,
 `spec.md`, `plan.md`, `REVIEW.md`) and in git, never in the chat. This skill finds the current stage and hands over. It does no
 engineering itself.
 
@@ -45,10 +45,14 @@ the artifact. If several plan items are in flight and it is not obvious which on
 Say in one line which stage you enter and why, then invoke the skill. Exception: `sdlc-release` cannot be invoked by the agent in
 Claude Code (`disable-model-invocation`), so ask the user to run `/sdlc-release`; in other harnesses read and follow it. Before ending a session mid-change, update the phase's
 `Status:` line in `plan.md` (what is done, what is next) and keep the checkboxes true. The next agent, in any harness, starts with
-`/sdlc` (Claude Code) or "use the sdlc skill" (Codex, Gemini CLI, Copilot, Cursor, MiniMax Code) and needs nothing else from you.
+`/sdlc` (Claude Code) or "use the sdlc skill" (Codex, Gemini CLI, Copilot, Cursor, MiniMax Code) and can resume from that evidence.
 
 ## Rules
 
 - A stage is finished only when its artifact exists on disk (`AGENTS.md`, process table). Do not skip or reorder stages.
 - Never tick a plan box before the gate (`python3 scripts/sdlc_check.py`) exited 0 in this session.
 - The operator gates in `AGENTS.md` always apply.
+
+## Codex entry
+
+Invoke `$sdlc` or ask to use the sdlc skill. Read `AGENTS.md` and `sdlc.toml`, identify the active repository and recorded scope, then continue authorized work. Preserve uncommitted changes and report unavailable sandbox checks as unverified.

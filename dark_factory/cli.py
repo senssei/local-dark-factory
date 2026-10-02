@@ -16,6 +16,7 @@ from dark_factory.domain.errors import RunNotFoundError
 from dark_factory.domain.types import RunStatus, TaskSpec, VerificationStep
 from dark_factory.eval.runner import format_summary, run_eval, save_report
 from dark_factory.eval.scenarios import SCENARIOS
+from dark_factory.harness.llm_text import clean_text
 from dark_factory.harness.local_coder import LocalCoderHarness
 from dark_factory.orchestrator.engine import DurableEngine
 
@@ -120,12 +121,20 @@ def cmd_run(args: argparse.Namespace) -> int:
         allow_no_verify=args.no_verify,
         allow_gate_edits=args.allow_gate_edits,
         timeout_minutes=args.timeout_minutes,
+        skip_adversarial=args.no_adversarial,
+        mutate_adversarial=args.mutate_adversarial,
+        planner_model=args.planner_model,
+        skip_plan=args.no_plan,
     )
 
     print("🚀 Sovereign Dark Factory submitting task...")
     print(f"   Target Repo:  {spec.repo_path}")
     print(f"   Base Rev:     {spec.base_rev}")
     print(f"   Local Model:  {spec.model}")
+    if spec.planner_model:
+        print(f"   Planner:      {spec.planner_model}")
+    if spec.mutate_adversarial:
+        print("   Adversarial:  Active test mutation enabled")
     print(f"   Verification: {len(spec.verification_steps)} gate(s) configured")
     print(f"   Prompt:       {spec.task_prompt}")
     print("-" * 50)
@@ -205,13 +214,31 @@ def cmd_describe(args: argparse.Namespace) -> int:
     if manifest.repeated_failure_streak:
         print(f"Stuck Detector:  repeated the same failure {manifest.repeated_failure_streak + 1} time(s)")
     if manifest.operator_notes:
-        print(f"Operator Notes:  {manifest.operator_notes}")
+        print(f"Operator Notes:  {clean_text(manifest.operator_notes)}")
 
     if manifest.model_telemetry:
         telem = manifest.model_telemetry
         print(
             f"Telemetry:       {telem.completion_tokens} tokens @ {telem.tokens_per_sec} tok/s ({telem.duration_sec}s) - Cost: $0.00"
         )
+
+    print("\n--- EXECUTION PLAN ---")
+    if manifest.execution_plan:
+        plan = manifest.execution_plan
+        print(f"Plan ID:      {clean_text(plan.plan_id)}")
+        print(f"Summary:      {clean_text(plan.summary)}")
+        if plan.target_files:
+            print(f"Target Files: {clean_text(', '.join(plan.target_files))}")
+        if plan.invariants:
+            print("Invariants:")
+            for inv in plan.invariants:
+                print(f"  - {clean_text(inv)}")
+        if plan.steps:
+            print("Steps:")
+            for step in plan.steps:
+                print(f"  - {clean_text(step)}")
+    else:
+        print("No execution plan recorded.")
 
     print("\n--- VERIFICATION GATES ---")
     if manifest.verification_results:
@@ -228,9 +255,35 @@ def cmd_describe(args: argparse.Namespace) -> int:
     else:
         print("No phase timings recorded.")
 
+    print("\n--- ADVERSARIAL AUDIT ---")
+    if manifest.adversarial_report:
+        adv = manifest.adversarial_report
+        badge = adv.badge
+        print(f"Status:  [{badge}]")
+        print(f"Summary: {clean_text(adv.summary)}")
+        if adv.findings:
+            print("Findings:")
+            for f in adv.findings:
+                print(f"  - [{clean_text(f.severity)}] ({clean_text(f.category)}) {clean_text(f.summary)}")
+                if f.details:
+                    print(f"    Details: {clean_text(f.details)}")
+        else:
+            print("Findings: None")
+    else:
+        print("No adversarial audit recorded.")
+
+    print("\n--- ADVERSARIAL MUTATION ---")
+    if manifest.adversarial_test_code:
+        print("Status:  Active Hostile Probe Synthesized")
+        print("Generated Probe Code (test_adversarial_probe.py):")
+        for line in manifest.adversarial_test_code.splitlines():
+            print(f"  {clean_text(line)}")
+    else:
+        print("No active test mutation recorded.")
+
     print("\n--- UNIFIED DIFF ---")
     if patch.strip():
-        print(patch)
+        print(clean_text(patch))
     else:
         print("(No diff generated)")
 
@@ -240,11 +293,46 @@ def cmd_describe(args: argparse.Namespace) -> int:
 def cmd_review(args: argparse.Namespace) -> int:
     """Approve or reject a run."""
     engine = DurableEngine(storage_dir=args.storage_dir)
-    if not args.approve and not args.reject:
+    try:
+        manifest = engine.get_run(args.run_id)
+    except RunNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    if manifest.adversarial_report:
+        adv = manifest.adversarial_report
+        badge = adv.badge
+        print(f"--- ADVERSARIAL AUDIT: [{badge}] ---")
+        print(f"Summary: {clean_text(adv.summary)}")
+        if adv.findings:
+            print("Findings:")
+            for f in adv.findings:
+                print(f"  - [{clean_text(f.severity)}] ({clean_text(f.category)}) {clean_text(f.summary)}")
+
+    if manifest.adversarial_test_code:
+        print("--- ADVERSARIAL MUTATION: hostile probe synthesized (see `describe` for the code) ---")
+
+    if args.approve:
+        approve = True
+    elif args.reject:
+        approve = False
+    elif sys.stdin.isatty():
+        try:
+            ans = input("Approve and apply patch? [y/N]: ").strip().lower()
+            if ans in ("y", "yes"):
+                approve = True
+            elif ans in ("n", "no"):
+                approve = False
+            else:
+                print("Review cancelled.")
+                return 0
+        except (KeyboardInterrupt, EOFError):
+            print("\nReview cancelled.")
+            return 0
+    else:
         print("Error: Specify either --approve or --reject", file=sys.stderr)
         return 1
 
-    approve = bool(args.approve)
     try:
         manifest = engine.review_run(
             run_id=args.run_id,
@@ -373,6 +461,18 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument(
         "--prism-url", default="http://127.0.0.1:5272/v1", help="Prism endpoint (default: http://127.0.0.1:5272/v1)"
     )
+    p_run.add_argument(
+        "--no-adversarial", action="store_true", help="Skip post-verification adversarial red-team audit"
+    )
+    p_run.add_argument(
+        "--mutate-adversarial",
+        action="store_true",
+        help="Synthesize hostile dynamic unit tests and feed failures into self-healing loop",
+    )
+    p_run.add_argument(
+        "--planner-model", default=None, help="Local model for reasoning and task planning (default: same as --model)"
+    )
+    p_run.add_argument("--no-plan", action="store_true", help="Skip pre-execution reasoning and planning session")
     p_run.set_defaults(func=cmd_run)
 
     # list

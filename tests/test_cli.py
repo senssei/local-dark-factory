@@ -180,3 +180,298 @@ def test_cli_dashboard_wires_args_through(monkeypatch, tmp_path: Path):
     assert calls["port"] == 9999
     assert calls["open_browser"] is False
     assert calls["storage_dir"] == tmp_path / ".factory"
+
+
+def test_cli_run_passes_no_adversarial_flag(tmp_path: Path, monkeypatch):
+    from dark_factory.domain.types import EvidenceManifest, RunStatus
+    from dark_factory.orchestrator import DurableEngine
+
+    captured_specs = []
+
+    def mock_execute_run(self, spec, harness=None, run_id=None, status_callback=None):
+        captured_specs.append(spec)
+        manifest = EvidenceManifest.create(run_id="run-test", repo_path=spec.repo_path, base_rev=spec.base_rev)
+        manifest.status = RunStatus.AWAITING_REVIEW
+        return manifest
+
+    monkeypatch.setattr(DurableEngine, "execute_run", mock_execute_run)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "test.sh").write_text("#!/bin/sh\nexit 0\n")
+
+    res = main(["run", "--repo", str(repo), "--task", "Foo", "--no-adversarial"])
+    assert res == 0
+    assert len(captured_specs) == 1
+    assert captured_specs[0].skip_adversarial is True
+
+
+def test_cli_describe_renders_adversarial_report(tmp_path: Path, capsys):
+    from dark_factory.domain.types import AdversarialFinding, AdversarialReport, EvidenceManifest, RunStatus
+    from dark_factory.storage import EvidenceLocker
+
+    storage = tmp_path / ".factory"
+    locker = EvidenceLocker(storage_dir=storage)
+    manifest = EvidenceManifest.create(run_id="run-adv-test", repo_path="/tmp/repo", base_rev="abc1234")
+    manifest.status = RunStatus.AWAITING_REVIEW
+    manifest.adversarial_report = AdversarialReport(
+        passed=False,
+        summary="Found critical cheating pattern.",
+        findings=[
+            AdversarialFinding(
+                severity="CRITICAL",
+                category="anti-cheating",
+                summary="Hardcoded return value",
+                details="Function always returns True instead of verifying input.",
+            ),
+            AdversarialFinding(
+                severity="WARN",
+                category="boundary",
+                summary="Missing empty list handling",
+                details="Will raise IndexError if passed empty sequence.",
+            ),
+        ],
+    )
+    locker.save_run(manifest, patch_content="diff --git a/foo.py b/foo.py\n")
+
+    res = main(["describe", "run-adv-test", "--storage-dir", str(storage)])
+    assert res == 0
+    out = capsys.readouterr().out
+    assert "--- ADVERSARIAL AUDIT ---" in out
+    assert "[WARN]" in out or "[CRITICAL]" in out
+    assert "Found critical cheating pattern." in out
+    assert "[CRITICAL] (anti-cheating) Hardcoded return value" in out
+    assert "Function always returns True instead of verifying input." in out
+    assert "[WARN] (boundary) Missing empty list handling" in out
+
+
+def test_cli_describe_renders_adversarial_report_clean(tmp_path: Path, capsys):
+    from dark_factory.domain.types import AdversarialReport, EvidenceManifest, RunStatus
+    from dark_factory.storage import EvidenceLocker
+
+    storage = tmp_path / ".factory"
+    locker = EvidenceLocker(storage_dir=storage)
+    manifest = EvidenceManifest.create(run_id="run-clean-test", repo_path="/tmp/repo", base_rev="abc1234")
+    manifest.status = RunStatus.AWAITING_REVIEW
+    manifest.adversarial_report = AdversarialReport(
+        passed=True,
+        summary="Clean patch with no red-team findings.",
+        findings=[],
+    )
+    locker.save_run(manifest, patch_content="diff --git a/foo.py b/foo.py\n")
+
+    res = main(["describe", "run-clean-test", "--storage-dir", str(storage)])
+    assert res == 0
+    out = capsys.readouterr().out
+    assert "--- ADVERSARIAL AUDIT ---" in out
+    assert "[PASS]" in out
+    assert "Clean patch with no red-team findings." in out
+    assert "Findings: None" in out
+
+
+def test_cli_review_displays_adversarial_report_before_action(tmp_path: Path, capsys):
+    from dark_factory.domain.types import AdversarialFinding, AdversarialReport, EvidenceManifest, RunStatus
+    from dark_factory.orchestrator import DurableEngine
+
+    storage = tmp_path / ".factory"
+    engine = DurableEngine(storage_dir=storage)
+    manifest = EvidenceManifest.create(run_id="run-review-adv", repo_path="/tmp/repo", base_rev="abc1234")
+    manifest.status = RunStatus.AWAITING_REVIEW
+    manifest.adversarial_report = AdversarialReport(
+        passed=False,
+        summary="Suspicious test modification detected.",
+        findings=[
+            AdversarialFinding(
+                severity="WARN",
+                category="anti-cheating",
+                summary="Relaxed assertion tolerance",
+                details="Tolerance changed from 0.001 to 0.1",
+            )
+        ],
+    )
+    engine.locker.save_run(manifest, patch_content="diff --git a/foo.py b/foo.py\n")
+    with engine._get_connection() as conn:
+        conn.execute(
+            "INSERT INTO runs (run_id, repo_path, base_rev, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                manifest.run_id,
+                manifest.repo_path,
+                manifest.base_rev,
+                manifest.status.value,
+                manifest.created_at,
+                manifest.created_at,
+            ),
+        )
+
+    res = main(["review", "run-review-adv", "--reject", "--storage-dir", str(storage)])
+    assert res == 0
+    out = capsys.readouterr().out
+    assert "ADVERSARIAL AUDIT" in out
+    assert "Suspicious test modification detected." in out
+    assert "[WARN] (anti-cheating) Relaxed assertion tolerance" in out
+    assert "REJECTED" in out
+
+
+def test_cli_review_interactive_prompt_approve(tmp_path: Path, monkeypatch, capsys):
+    import sys
+
+    from dark_factory.domain.types import AdversarialReport, EvidenceManifest, RunStatus
+    from dark_factory.orchestrator import DurableEngine
+
+    storage = tmp_path / ".factory"
+    engine = DurableEngine(storage_dir=storage)
+    manifest = EvidenceManifest.create(run_id="run-interactive-test", repo_path="/tmp/repo", base_rev="abc1234")
+    manifest.status = RunStatus.AWAITING_REVIEW
+    manifest.adversarial_report = AdversarialReport(
+        passed=True,
+        summary="Clean patch.",
+        findings=[],
+    )
+    engine.locker.save_run(manifest, patch_content="diff --git a/foo.py b/foo.py\n")
+    with engine._get_connection() as conn:
+        conn.execute(
+            "INSERT INTO runs (run_id, repo_path, base_rev, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                manifest.run_id,
+                manifest.repo_path,
+                manifest.base_rev,
+                manifest.status.value,
+                manifest.created_at,
+                manifest.created_at,
+            ),
+        )
+
+    # Mock isatty to True and mock input to return 'y'
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+    # Mock activity_apply_patch to avoid real git repo requirement
+    import dark_factory.orchestrator.engine as eng_mod
+
+    monkeypatch.setattr(eng_mod, "activity_apply_patch", lambda **kwargs: "commit-rev-123")
+
+    res = main(["review", "run-interactive-test", "--storage-dir", str(storage)])
+    assert res == 0
+    out = capsys.readouterr().out
+    assert "ADVERSARIAL AUDIT" in out
+    assert "APPROVED" in out
+
+
+def test_cli_run_passes_planner_flags(tmp_path: Path, monkeypatch):
+    from dark_factory.domain.types import EvidenceManifest, RunStatus
+    from dark_factory.orchestrator import DurableEngine
+
+    captured_specs = []
+
+    def mock_execute_run(self, spec, harness=None, run_id=None, status_callback=None):
+        captured_specs.append(spec)
+        manifest = EvidenceManifest.create(run_id="run-test", repo_path=spec.repo_path, base_rev=spec.base_rev)
+        manifest.status = RunStatus.AWAITING_REVIEW
+        return manifest
+
+    monkeypatch.setattr(DurableEngine, "execute_run", mock_execute_run)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "test.sh").write_text("#!/bin/sh\nexit 0\n")
+
+    res = main(
+        [
+            "run",
+            "--repo",
+            str(repo),
+            "--task",
+            "Foo",
+            "--planner-model",
+            "deepseek-r1:14b",
+            "--no-plan",
+        ]
+    )
+    assert res == 0
+    assert len(captured_specs) == 1
+    assert captured_specs[0].planner_model == "deepseek-r1:14b"
+    assert captured_specs[0].skip_plan is True
+
+
+def test_cli_describe_renders_execution_plan(tmp_path: Path, capsys):
+    from dark_factory.domain.types import EvidenceManifest, ExecutionPlan, RunStatus
+    from dark_factory.storage import EvidenceLocker
+
+    storage = tmp_path / ".factory"
+    locker = EvidenceLocker(storage_dir=storage)
+    manifest = EvidenceManifest.create(run_id="run-plan-desc", repo_path="/tmp/repo", base_rev="abc1234")
+    manifest.status = RunStatus.AWAITING_REVIEW
+    manifest.execution_plan = ExecutionPlan(
+        plan_id="plan-1234",
+        summary="Introduce modular caching layer",
+        invariants=["TTL expiry must be deterministic", "LRU cache size capped at 1000 items"],
+        steps=["1. Implement MemoryCache", "2. Connect cache decorator to repo"],
+        target_files=["cache.py", "repository.py"],
+    )
+    locker.save_run(manifest, patch_content="diff --git a/foo.py b/foo.py\n")
+
+    res = main(["describe", "run-plan-desc", "--storage-dir", str(storage)])
+    assert res == 0
+    out = capsys.readouterr().out
+    assert "--- EXECUTION PLAN ---" in out
+    assert "Introduce modular caching layer" in out
+    assert "TTL expiry must be deterministic" in out
+    assert "1. Implement MemoryCache" in out
+    assert "cache.py, repository.py" in out
+
+
+def test_cli_run_passes_mutate_adversarial_flag(tmp_path: Path, monkeypatch):
+    captured_specs = []
+
+    class DummyEngine:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def execute_run(self, spec, *args, **kwargs):
+            captured_specs.append(spec)
+            from dark_factory.domain.types import EvidenceManifest, RunStatus
+
+            return EvidenceManifest.create(
+                run_id="run-dummy",
+                repo_path=spec.repo_path,
+                base_rev="abc",
+                status=RunStatus.AWAITING_REVIEW,
+            )
+
+    monkeypatch.setattr(cli_module, "DurableEngine", DummyEngine)
+    monkeypatch.setattr(cli_module, "LocalCoderHarness", lambda **kwargs: None)
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "test.sh").write_text("#!/bin/sh\nexit 0\n")
+
+    res = main(
+        [
+            "run",
+            "--repo",
+            str(repo),
+            "--task",
+            "dummy task",
+            "--mutate-adversarial",
+        ]
+    )
+    assert res == 0
+    assert len(captured_specs) == 1
+    assert captured_specs[0].mutate_adversarial is True
+
+
+def test_cli_describe_renders_adversarial_mutation(tmp_path: Path, capsys):
+    from dark_factory.domain.types import EvidenceManifest, RunStatus
+    from dark_factory.storage import EvidenceLocker
+
+    storage = tmp_path / ".factory"
+    locker = EvidenceLocker(storage_dir=storage)
+    manifest = EvidenceManifest.create(run_id="run-mut-desc", repo_path="/tmp/repo", base_rev="abc1234")
+    manifest.status = RunStatus.AWAITING_REVIEW
+    manifest.adversarial_test_code = "def test_probe(): assert True\n"
+    locker.save_run(manifest, patch_content="diff --git a/foo.py b/foo.py\n")
+
+    res = main(["describe", "run-mut-desc", "--storage-dir", str(storage)])
+    assert res == 0
+    out = capsys.readouterr().out
+    assert "--- ADVERSARIAL MUTATION ---" in out
+    assert "def test_probe(): assert True" in out

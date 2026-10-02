@@ -1,77 +1,8 @@
-# CLAUDE.md — Operating Manual for Sovereign Dark Factory (`local-dark-factory`)
+@AGENTS.md
 
-This repository is **Sovereign Dark Factory**: a local-first, zero-cloud-token autonomous AI Software Factory orchestrator running on Linux/WSL2 with NVIDIA RTX 5070 GPU hardware.
+## Claude Code specifics
 
----
-
-## 🚀 Commands & Development Workflow
-
-### Python Environment & Dependencies
-```bash
-# Set up virtualenv
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev,docs]"
-
-# Run tests
-pytest tests/ -v
-
-# Run linting & formatting
-ruff check .
-ruff format --check .
-
-# Run dark-factory CLI in dev mode
-dark-factory doctor
-dark-factory run --help
-```
-
----
-
-## 🔁 Development Process (AI-Native SDLC)
-
-See `AGENTS.md` for the process table (intent → spec → plan → test → code → review) and process rules; this file does not
-duplicate them so there is one source of truth.
-
----
-
-## 🏛 Architecture & Component Layout
-
-```text
-dark_factory/
-├── domain/         # Pure data contracts (TaskSpec, RunStatus, EvidenceManifest)
-├── sandbox/        # Isolated execution fabrics (GitWorktreeSandbox)
-├── harness/        # Agent runners (LocalCoderHarness)
-├── verification/   # Deterministic test runners and AST self-healing loop
-├── orchestrator/   # SQLite-backed durable workflow state machine
-├── storage/        # Evidence locker (.factory/runs/<RUN_ID>/...)
-└── cli.py          # Operator CLI entrypoint (doctor, run, list, describe, review, recover)
-```
-
----
-
-## ⚖️ Non-Negotiable Core Rules
-
-1. **Zero Cloud Tokens**:
-   - Never introduce dependencies on Anthropic, OpenAI, or other paid cloud APIs.
-   - All model calls must go through the local stack (Ollama `http://localhost:11434`, or Prism `http://127.0.0.1:5272/v1`).
-2. **Deterministic Verification is Authoritative**:
-   - The LLM *never* decides if it succeeded. Only verification exit codes decide.
-   - An exit code of `0` on all mandatory verification gates is required for a run to be marked `AWAITING_REVIEW`.
-3. **Sandbox Isolation**:
-   - Agents must never modify the host repository directly during a run.
-   - All work happens inside isolated worktrees (`GitWorktreeSandbox`).
-   - Sandboxes must be completely and idempotently cleaned up on every exit path (success, failure, cancellation, timeout).
-4. **Structured Argv Only**:
-   - Never execute arbitrary shell strings without quoting. Verification and sandbox commands must accept `list[str]` (argv) to prevent shell injection.
-5. **Durable Evidence**:
-   - Every run must preserve its `diff.patch`, `manifest.json`, stdout/stderr transcripts, and local model telemetry.
-
----
-
-## 🧠 Local AI Skills Integration
-
-When writing or refactoring code in this repository, leverage our local skills and engines:
-- **`local-coder`**: Unified multi-engine router skill (the factory harness itself uses Ollama, then Prism CUDA).
-- **`ollama-coder`**: Direct Ollama CLI (`qwen2.5-coder:14b`, `llama3.1:8b`).
-- **`foundry-coder`**: Direct connector skill for the operator; not used by the factory harness.
-- Status check: `dark-factory doctor`
+- Start with `/sdlc`: it reads `plan.md` and the git state and tells you which stage you are in. The phase skills are
+  `/sdlc-plan`, `/sdlc-implement`, `/sdlc-review` and `/sdlc-release`. They live in `.agents/skills/`; `.claude/skills` is a symlink.
+- For `sdlc-review`, the independent reviewer that `AGENTS.md` requires is the Agent tool with `general-purpose`.
+- `sdlc-release` is user-invoked only (`/sdlc-release`); ask the user to run it when the change is ready to ship.
