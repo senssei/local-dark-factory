@@ -120,6 +120,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         max_healing_attempts=args.retries,
         allow_no_verify=args.no_verify,
         allow_gate_edits=args.allow_gate_edits,
+        allow_out_of_scope=args.allow_out_of_scope,
         timeout_minutes=args.timeout_minutes,
         skip_adversarial=args.no_adversarial,
         skip_analysis=args.no_analysis,
@@ -435,19 +436,23 @@ def cmd_eval(args: argparse.Namespace) -> int:
     def on_status(msg: str) -> None:
         print(f"   {msg}")
 
-    report = run_eval(
-        names,
-        harness_factory=lambda: LocalCoderHarness(
-            model=args.model, ollama_url=args.ollama_url, prism_url=args.prism_url
-        ),
-        model=args.model,
-        ollama_url=args.ollama_url,
-        prism_url=args.prism_url,
-        storage_dir=Path(args.storage_dir),
-        repeat=args.repeat,
-        keep_repos=args.keep_repos,
-        status_callback=on_status,
-    )
+    try:
+        report = run_eval(
+            names,
+            harness_factory=lambda: LocalCoderHarness(
+                model=args.model, ollama_url=args.ollama_url, prism_url=args.prism_url
+            ),
+            model=args.model,
+            ollama_url=args.ollama_url,
+            prism_url=args.prism_url,
+            storage_dir=Path(args.storage_dir),
+            repeat=args.repeat,
+            keep_repos=args.keep_repos,
+            status_callback=on_status,
+        )
+    except KeyboardInterrupt:
+        print("\nEval interrupted by operator.", file=sys.stderr)
+        return 130
 
     path = save_report(report, Path(args.storage_dir))
     print()
@@ -455,8 +460,9 @@ def cmd_eval(args: argparse.Namespace) -> int:
     print(f"\nSaved report: {path}")
 
     summary = report.scenario_summary()
-    all_converged_at_least_once = all(s["converged"] > 0 for s in summary.values())
-    return 0 if all_converged_at_least_once else 1
+    all_converged_at_least_once = bool(summary) and all(s["converged"] > 0 for s in summary.values())
+    has_backend_errors = any(r.error is not None for r in report.results)
+    return 0 if (all_converged_at_least_once and not has_backend_errors) else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -479,6 +485,11 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--test-cmd", action="append", help="Verification command (can be repeated)")
     p_run.add_argument("--no-verify", action="store_true", help="Allow run without verification gates (DANGEROUS)")
     p_run.add_argument("--allow-gate-edits", action="store_true", help="Permit agent to modify test files/gates")
+    p_run.add_argument(
+        "--allow-out-of-scope",
+        action="store_true",
+        help="Accept a verified patch that touches placeholder paths or files outside --target-file",
+    )
     p_run.add_argument("--retries", type=int, default=3, help="Max self-healing retries (default: 3)")
     p_run.add_argument("--timeout-minutes", type=float, default=30, help="Run deadline in minutes (default: 30)")
     p_run.add_argument(

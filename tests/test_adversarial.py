@@ -173,3 +173,192 @@ def test_mutator_caps_a_large_patch_instead_of_failing_the_preflight():
         code = AdversarialMutator(harness=LocalCoderHarness(max_num_ctx=8192)).generate_probe("task", "+x\n" * 9000)
     post.assert_called_once()
     assert code is not None
+
+
+def test_p1_rejects_summary_only_json():
+    from dark_factory.verification.adversarial import AdversarialAuditor
+
+    harness = MagicMock()
+    harness._call_model.return_value = (
+        '{"summary": "ok"}',
+        ModelTelemetry("ollama", "qwen2.5-coder:14b"),
+    )
+    auditor = AdversarialAuditor(harness=harness)
+    report = auditor.audit_patch("task", "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n+x = 1\n")
+    assert not report.passed
+    assert len(report.findings) >= 1
+    assert any(
+        f.severity == "WARN" and f.category == "regression" and "schema" in f.summary.lower() for f in report.findings
+    )
+
+
+def test_p1_rejects_string_boolean_passed():
+    from dark_factory.verification.adversarial import AdversarialAuditor
+
+    harness = MagicMock()
+    harness._call_model.return_value = (
+        '{"passed": "false", "findings": [], "summary": "bad"}',
+        ModelTelemetry("ollama", "qwen2.5-coder:14b"),
+    )
+    auditor = AdversarialAuditor(harness=harness)
+    report = auditor.audit_patch("task", "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n+x = 1\n")
+    assert not report.passed
+    assert any(
+        f.severity == "WARN" and f.category == "regression" and "schema" in f.summary.lower() for f in report.findings
+    )
+
+
+def test_p1_rejects_string_boolean_true_passed():
+    from dark_factory.verification.adversarial import AdversarialAuditor
+
+    harness = MagicMock()
+    harness._call_model.return_value = (
+        '{"passed": "true", "findings": [], "summary": "ok"}',
+        ModelTelemetry("ollama", "qwen2.5-coder:14b"),
+    )
+    auditor = AdversarialAuditor(harness=harness)
+    report = auditor.audit_patch("task", "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n+x = 1\n")
+    assert not report.passed
+    assert any(
+        f.severity == "WARN" and f.category == "regression" and "schema" in f.summary.lower() for f in report.findings
+    )
+
+
+def test_p1_rejects_non_string_summary():
+    from dark_factory.verification.adversarial import AdversarialAuditor
+
+    harness = MagicMock()
+    harness._call_model.return_value = (
+        '{"passed": true, "summary": 12345, "findings": []}',
+        ModelTelemetry("ollama", "qwen2.5-coder:14b"),
+    )
+    auditor = AdversarialAuditor(harness=harness)
+    report = auditor.audit_patch("task", "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n+x = 1\n")
+    assert not report.passed
+    assert any(
+        f.severity == "WARN" and f.category == "regression" and "schema" in f.summary.lower() for f in report.findings
+    )
+
+
+def test_p1_rejects_non_list_findings():
+    from dark_factory.verification.adversarial import AdversarialAuditor
+
+    harness = MagicMock()
+    harness._call_model.return_value = (
+        '{"passed": true, "summary": "ok", "findings": "none"}',
+        ModelTelemetry("ollama", "qwen2.5-coder:14b"),
+    )
+    auditor = AdversarialAuditor(harness=harness)
+    report = auditor.audit_patch("task", "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n+x = 1\n")
+    assert not report.passed
+    assert any(
+        f.severity == "WARN" and f.category == "regression" and "schema" in f.summary.lower() for f in report.findings
+    )
+
+
+def test_p1_rejects_finding_missing_required_fields_or_invalid_severity():
+    from dark_factory.verification.adversarial import AdversarialAuditor
+
+    harness = MagicMock()
+    # Missing summary and details
+    harness._call_model.return_value = (
+        '{"passed": false, "summary": "issue", "findings": [{"severity": "WARN", "category": "security"}]}',
+        ModelTelemetry("ollama", "qwen2.5-coder:14b"),
+    )
+    auditor = AdversarialAuditor(harness=harness)
+    report = auditor.audit_patch("task", "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n+x = 1\n")
+    assert not report.passed
+    assert any(
+        f.severity == "WARN" and f.category == "regression" and "schema" in f.summary.lower() for f in report.findings
+    )
+
+    # Invalid severity
+    harness._call_model.return_value = (
+        '{"passed": false, "summary": "issue", "findings": [{"severity": "SUPER_CRITICAL", "category": "security", "summary": "s", "details": "d"}]}',
+        ModelTelemetry("ollama", "qwen2.5-coder:14b"),
+    )
+    report2 = auditor.audit_patch("task", "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n+x = 1\n")
+    assert not report2.passed
+    assert any(
+        f.severity == "WARN" and f.category == "regression" and "schema" in f.summary.lower() for f in report2.findings
+    )
+
+
+def test_p1_rejects_finding_missing_severity():
+    from dark_factory.verification.adversarial import AdversarialAuditor
+
+    harness = MagicMock()
+    harness._call_model.return_value = (
+        '{"passed": true, "summary": "Audit passed cleanly", "findings": [{"category": "boundary", "summary": "note", "details": "d"}]}',
+        ModelTelemetry("ollama", "qwen2.5-coder:14b"),
+    )
+    auditor = AdversarialAuditor(harness=harness)
+    report = auditor.audit_patch("task", "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n+x = 1\n")
+    assert not report.passed
+    assert any(
+        f.severity == "WARN" and f.category == "regression" and "schema" in f.summary.lower() for f in report.findings
+    )
+
+
+def test_p1_rejects_finding_missing_category():
+    from dark_factory.verification.adversarial import AdversarialAuditor
+
+    harness = MagicMock()
+    harness._call_model.return_value = (
+        '{"passed": true, "summary": "Audit passed cleanly", "findings": [{"severity": "INFO", "summary": "note", "details": "d"}]}',
+        ModelTelemetry("ollama", "qwen2.5-coder:14b"),
+    )
+    auditor = AdversarialAuditor(harness=harness)
+    report = auditor.audit_patch("task", "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n+x = 1\n")
+    assert not report.passed
+    assert any(
+        f.severity == "WARN" and f.category == "regression" and "schema" in f.summary.lower() for f in report.findings
+    )
+
+
+def test_p1_rejects_finding_missing_details():
+    from dark_factory.verification.adversarial import AdversarialAuditor
+
+    harness = MagicMock()
+    harness._call_model.return_value = (
+        '{"passed": true, "summary": "Audit passed cleanly", "findings": [{"severity": "INFO", "category": "boundary", "summary": "note"}]}',
+        ModelTelemetry("ollama", "qwen2.5-coder:14b"),
+    )
+    auditor = AdversarialAuditor(harness=harness)
+    report = auditor.audit_patch("task", "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n+x = 1\n")
+    assert not report.passed
+    assert any(
+        f.severity == "WARN" and f.category == "regression" and "schema" in f.summary.lower() for f in report.findings
+    )
+
+
+def test_p1_rejects_empty_root_summary():
+    from dark_factory.verification.adversarial import AdversarialAuditor
+
+    harness = MagicMock()
+    harness._call_model.return_value = (
+        '{"passed": true, "summary": "   ", "findings": []}',
+        ModelTelemetry("ollama", "qwen2.5-coder:14b"),
+    )
+    auditor = AdversarialAuditor(harness=harness)
+    report = auditor.audit_patch("task", "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n+x = 1\n")
+    assert not report.passed
+    assert any(
+        f.severity == "WARN" and f.category == "regression" and "schema" in f.summary.lower() for f in report.findings
+    )
+
+
+def test_p1_rejects_empty_finding_summary():
+    from dark_factory.verification.adversarial import AdversarialAuditor
+
+    harness = MagicMock()
+    harness._call_model.return_value = (
+        '{"passed": true, "summary": "Clean", "findings": [{"severity": "INFO", "category": "boundary", "summary": "  ", "details": "d"}]}',
+        ModelTelemetry("ollama", "qwen2.5-coder:14b"),
+    )
+    auditor = AdversarialAuditor(harness=harness)
+    report = auditor.audit_patch("task", "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n+x = 1\n")
+    assert not report.passed
+    assert any(
+        f.severity == "WARN" and f.category == "regression" and "schema" in f.summary.lower() for f in report.findings
+    )

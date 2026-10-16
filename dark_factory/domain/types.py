@@ -83,6 +83,7 @@ class TaskSpec:
     planner_model: str | None = None
     skip_plan: bool = False
     target_files: list[str] = field(default_factory=list)  # files the agent edits; inlined in full as context
+    allow_out_of_scope: bool = False  # bypass the patch-scope gate (placeholder paths, files outside target_files)
 
 
 @dataclass
@@ -111,6 +112,9 @@ class ModelTelemetry:
     tokens_per_sec: float = 0.0
     cost_usd: float = 0.0  # Always 0.0 for local models
     num_ctx: int | None = None  # context window requested from the engine (Ollama only)
+    finish_reason: str | None = None  # why the last call stopped: `stop`, `length`, ... (None: engine did not say)
+    max_tokens: int | None = None  # completion budget requested from the engine (Prism only)
+    reasoning_chars: int = 0  # length of the engine's separate reasoning text; diagnostic only, never executed
 
 
 @dataclass

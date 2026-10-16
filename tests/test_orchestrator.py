@@ -452,6 +452,99 @@ def test_empty_patch_is_failed_not_awaiting_review(mock_repo: Path, tmp_path: Pa
         engine.review_run("run-noop", approve=True)
 
 
+class StrayPlaceholderFileHarness(AgentHarness):
+    """Fixes calc.py but also copies the fix to the prompt's `path/to/` example path."""
+
+    def execute_task(self, sandbox: Sandbox, task_prompt: str, target_files=None):
+        fixed = b"def add(a, b):\n    return a + b\n"
+        sandbox.write_file("calc.py", fixed)
+        sandbox.write_file("path/to/calc.py", fixed)
+        return HarnessResult(success=True, modified_files=["calc.py", "path/to/calc.py"])
+
+
+def _scope_spec(mock_repo: Path, **kwargs) -> TaskSpec:
+    return TaskSpec(
+        repo_path=str(mock_repo), task_prompt="fix add", verification_steps=_passing_gate(), skip_plan=True, **kwargs
+    )
+
+
+def test_df_live_06a_placeholder_file_fails_the_run_but_keeps_the_evidence(mock_repo: Path, tmp_path: Path):
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+
+    manifest = engine.execute_run(
+        spec=_scope_spec(mock_repo), harness=StrayPlaceholderFileHarness(), run_id="run-stray"
+    )
+
+    assert manifest.status == RunStatus.FAILED
+    assert "path/to/calc.py" in (manifest.operator_notes or "")
+    patch = (tmp_path / ".factory" / "runs" / "run-stray" / "diff.patch").read_text()
+    assert "path/to/calc.py" in patch  # evidence preserved
+    with engine._get_connection() as conn:
+        payload = conn.execute(
+            "SELECT payload FROM events WHERE run_id='run-stray' AND event_type='FAILED';"
+        ).fetchone()["payload"]
+    assert "out_of_scope_patch" in payload and "path/to/calc.py" in payload
+    with pytest.raises(WorkflowStateError):
+        engine.review_run("run-stray", approve=True)
+
+
+def test_df_live_06a_target_files_make_any_other_file_out_of_scope(mock_repo: Path, tmp_path: Path):
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+    spec = _scope_spec(mock_repo, target_files=["calc.py"])
+
+    class ExtraFileHarness(AgentHarness):
+        def execute_task(self, sandbox: Sandbox, task_prompt: str, target_files=None):
+            sandbox.write_file("calc.py", b"def add(a, b):\n    return a + b\n")
+            sandbox.write_file("helper.py", b"X = 1\n")
+            return HarnessResult(success=True, modified_files=["calc.py", "helper.py"])
+
+    manifest = engine.execute_run(spec=spec, harness=ExtraFileHarness(), run_id="run-extra")
+
+    assert manifest.status == RunStatus.FAILED
+    assert "helper.py" in (manifest.operator_notes or "")
+
+
+def test_df_live_06a_notes_cap_the_listed_paths_at_ten(mock_repo: Path, tmp_path: Path):
+    class ManyStrayFilesHarness(AgentHarness):
+        def execute_task(self, sandbox: Sandbox, task_prompt: str, target_files=None):
+            sandbox.write_file("calc.py", b"def add(a, b):\n    return a + b\n")
+            for i in range(11):
+                sandbox.write_file(f"path/to/f{i:02d}.py", b"x = 1\n")
+            return HarnessResult(success=True, modified_files=["calc.py"])
+
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+
+    manifest = engine.execute_run(spec=_scope_spec(mock_repo), harness=ManyStrayFilesHarness(), run_id="run-many")
+
+    assert manifest.status == RunStatus.FAILED
+    assert "(+1 more)" in (manifest.operator_notes or "")
+
+
+def test_df_live_06a_opt_out_reaches_review_and_says_so(mock_repo: Path, tmp_path: Path):
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+
+    manifest = engine.execute_run(
+        spec=_scope_spec(mock_repo, allow_out_of_scope=True),
+        harness=StrayPlaceholderFileHarness(),
+        run_id="run-optout",
+    )
+
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert "out-of-scope" in (manifest.operator_notes or "").lower()
+    assert "path/to/calc.py" in (manifest.operator_notes or "")
+
+
+def test_df_live_06a_in_scope_patch_is_unaffected(mock_repo: Path, tmp_path: Path):
+    engine = DurableEngine(storage_dir=tmp_path / ".factory")
+
+    manifest = engine.execute_run(
+        spec=_scope_spec(mock_repo, target_files=["calc.py"]), harness=MockRepairHarness(), run_id="run-inscope"
+    )
+
+    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert not manifest.operator_notes
+
+
 class AlwaysSameWrongHarness(AgentHarness):
     """Simulates a model stuck re-deriving the same wrong fix: always writes identical, still-broken code."""
 
@@ -1157,6 +1250,73 @@ def test_r18_clamp_does_not_touch_the_shared_harness(mock_repo: Path):
     assert observed[1] == 600
 
 
+def test_df_live_01_planner_with_a_distinct_model_keeps_the_coder_endpoints(mock_repo: Path, monkeypatch):
+    import time
+
+    from dark_factory.domain.types import ExecutionPlan
+    from dark_factory.harness.local_coder import LocalCoderHarness
+    from dark_factory.orchestrator.activities import activity_plan_task
+    from dark_factory.planning.planner import LocalPlanner
+
+    seen: list[tuple[str, str, str, int, int]] = []
+
+    def capture(self, task_prompt, context, plan_id):
+        h = self.harness
+        seen.append((h.model, h.ollama_url, h.prism_url, h.timeout, h.max_num_ctx))
+        return ExecutionPlan(plan_id=plan_id, summary="s", invariants=[], steps=[], target_files=[])
+
+    monkeypatch.setattr(LocalPlanner, "generate_plan", capture)
+    coder = LocalCoderHarness(
+        model="Phi-4-mini-instruct-cuda-gpu",
+        ollama_url="http://127.0.0.1:1",
+        prism_url="http://127.0.0.1:2/v1",
+        timeout=123,
+        max_num_ctx=6144,
+    )
+    spec = TaskSpec(
+        repo_path=str(mock_repo),
+        task_prompt="t",
+        verification_steps=_passing_gate(),
+        model="Phi-4-mini-instruct-cuda-gpu",
+        planner_model="Qwen3-4B-cuda-int4-kld-block-128",
+    )
+    manifest = EvidenceManifest(run_id="r", status=RunStatus.AGENT_RUNNING, repo_path=".", base_rev="x", created_at="t")
+
+    activity_plan_task("r", spec, _NullSandbox(), manifest, harness=coder, deadline=time.monotonic() + 1000)
+
+    assert len(seen) == 1
+    model, ollama_url, prism_url, timeout, max_num_ctx = seen[0]
+    assert model == "Qwen3-4B-cuda-int4-kld-block-128"
+    assert (ollama_url, prism_url) == ("http://127.0.0.1:1", "http://127.0.0.1:2/v1")
+    assert timeout == 123 and max_num_ctx == 6144
+
+
+def test_df_live_01_planner_without_a_planner_model_uses_the_coder_harness(mock_repo: Path, monkeypatch):
+    import time
+
+    from dark_factory.domain.types import ExecutionPlan
+    from dark_factory.harness.local_coder import LocalCoderHarness
+    from dark_factory.orchestrator.activities import activity_plan_task
+    from dark_factory.planning.planner import LocalPlanner
+
+    seen: list[str] = []
+
+    def capture(self, task_prompt, context, plan_id):
+        seen.append(self.harness.model)
+        return ExecutionPlan(plan_id=plan_id, summary="s", invariants=[], steps=[], target_files=[])
+
+    monkeypatch.setattr(LocalPlanner, "generate_plan", capture)
+    coder = LocalCoderHarness(model="Phi-4-mini-instruct-cuda-gpu")
+    spec = TaskSpec(
+        repo_path=str(mock_repo), task_prompt="t", verification_steps=_passing_gate()
+    )  # spec.model is the default
+    manifest = EvidenceManifest(run_id="r", status=RunStatus.AGENT_RUNNING, repo_path=".", base_rev="x", created_at="t")
+
+    activity_plan_task("r", spec, _NullSandbox(), manifest, harness=coder, deadline=time.monotonic() + 30)
+
+    assert seen == ["Phi-4-mini-instruct-cuda-gpu"]
+
+
 def test_r19_probe_tampering_is_reported_as_reverification_failure(mock_repo: Path, tmp_path: Path, monkeypatch):
     from dark_factory.verification.adversarial_mutator import AdversarialMutator
 
@@ -1279,14 +1439,16 @@ def test_target_files_reach_harness_on_every_attempt(mock_repo: Path, tmp_path: 
     spec = TaskSpec(
         repo_path=str(mock_repo),
         task_prompt="fix add",
-        verification_steps=[VerificationStep(id="t", argv=[sys.executable, "-m", "pytest", "-q", "test_calc.py"])],
+        verification_steps=[
+            VerificationStep(id="t", argv=[sys.executable, "-B", "-m", "pytest", "-q", "test_calc.py"])
+        ],
         target_files=["calc.py"],
         skip_plan=True,
         skip_analysis=True,
         skip_adversarial=True,
     )
     manifest = engine.execute_run(spec=spec, harness=RecordingHarness(), run_id="run-target-files")
-    assert manifest.status == RunStatus.AWAITING_REVIEW
+    assert manifest.status == RunStatus.AWAITING_REVIEW, manifest.operator_notes
     assert len(seen) >= 2 and all(tf == ["calc.py"] for tf in seen)
 
 

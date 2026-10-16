@@ -97,10 +97,10 @@ def activity_plan_task(
     from dark_factory.planning.planner import LocalPlanner
 
     planner_model = spec.planner_model or spec.model
-    if isinstance(harness, LocalCoderHarness) and harness.model == planner_model:
+    if isinstance(harness, LocalCoderHarness) and (spec.planner_model is None or harness.model == planner_model):
         planner_harness = harness
     elif isinstance(harness, LocalCoderHarness):
-        planner_harness = LocalCoderHarness(model=planner_model)
+        planner_harness = harness.with_model(planner_model)
     elif harness is not None and not hasattr(harness, "_call_model"):
         plan = ExecutionPlan(
             plan_id=f"plan-{run_id}",

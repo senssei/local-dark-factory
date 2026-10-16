@@ -185,11 +185,18 @@ class ExecutionPlan:
   - Collects token generation counts, elapsed time, and tokens/sec telemetry.
   - **Context window (Ollama):** Ollama silently truncates a prompt that exceeds its context window to about half the window, losing the *start* of the prompt, which is where the `FORMAT RULES` live; the model then answers in prose instead of `file:` blocks. Measured on Ollama 0.34 (plan.md §10.15): the default window is 4096 tokens, and a prompt larger than the window is reported as `prompt_eval_count = num_ctx / 2 + 2` (2050 of 4096, 4098 of 8192). The harness therefore (a) estimates the prompt size (`len(text) / 3` tokens, deliberately pessimistic), (b) sends `options.num_ctx = clamp(estimate + output reserve, 4096, max_num_ctx)`, where the output reserve is at least the size of the inlined files (the model re-emits whole files) and `max_num_ctx` is a constructor argument (default 8192: the largest window that keeps `qwen2.5-coder:14b` entirely in 12 GB of VRAM), (c) fails *before calling the model* with a clear error when the estimate plus reserve exceeds `max_num_ctx`, and (d) when the reply contains no `file:` block and `prompt_eval_count` is within 4 of `num_ctx / 2 + 2` or at least `num_ctx - 16`, adds a probable-truncation explanation naming the window to the failed `HarnessResult` (a heuristic that only explains a failure; a reply with valid file blocks is never discarded because of it). `max_num_ctx` is also the ceiling of the clamp. Model-bound text is bounded so a large input cannot make the pre-flight fail: gate output in a repair prompt is capped at 6000 characters (head plus tail, with a truncation marker), and the diff given to the auditor and to the mutator at 12000 characters (the auditor adds an `INFO` finding when it truncated). The chosen `num_ctx` is recorded in `ModelTelemetry.num_ctx`. Planner, auditor and mutator calls get the same sizing and pre-flight through `_call_model`. Prism's OpenAI-compatible endpoint has no per-request window: only (a) and (c) apply.
   - **Context building (`_build_context`):** if `target_files` is non-empty, exactly those files are inlined in full and prompt-text auto-detection is off. Otherwise (fallback) paths found in the task prompt that exist in the sandbox are auto-detected and inlined in prompt order while their estimated tokens stay within half of `max_num_ctx`; an auto-detected file that would exceed the remaining budget is listed as a one-line stub (`--- File: <path> (<N> lines, not inlined: over the auto-detected context budget; pass --target-file to include it) ---`) and later, smaller files may still fit.
-  - **File block protocol:** each file is emitted as `` ```file:<path> `` … `` ``` ``. Parsing is line-based and nesting-aware: a fence with an info string (`` ```python ``) inside a file opens a nested block, a bare fence closes it, and only a bare fence at depth 0 (at least as long as the opening one) terminates the file. File contents may therefore contain balanced markdown code fences (READMEs, docstrings) without being truncated. A block that is never terminated (truncated model output) is discarded, never written half-complete.
+  - **File block protocol:** each file is emitted as `` ```file:<path> `` … `` ``` ``. In accordance with CommonMark specifications, both the opening fence (`` ```file:<path> ``) and closing fence allow up to 3 leading spaces of indentation (`^ {0,3}`). Four or more spaces represent an indented markdown code block and do not open a file. Parsing is line-based and nesting-aware: a fence with an info string (`` ```python ``) inside a file opens a nested block, a bare fence closes it, and only a bare fence at depth 0 (at least as long as the opening one) terminates the file. File contents may therefore contain balanced markdown code fences (READMEs, docstrings) without being truncated. A block that is never terminated (truncated model output) is discarded, never written half-complete.
 
 - **`OpenCodeHarness`**:
   - Headless driver for local autonomous coding agents.
   - Configures agent runners to use local OpenAI-compatible endpoints.
+
+- **Completion budget, truncation and reasoning (DF-LIVE-02/03/07):**
+  - **Budget.** Every Prism request carries an explicit `max_tokens` equal to the call's `output_reserve` (at least `OUTPUT_RESERVE_MIN`, and for a coding call at least the size of the inlined files), instead of Prism's server default of 512. The pre-flight in `_plan_window` already guarantees `prompt + reserve <= max_num_ctx`. Prism may still clamp the reply to the model's real remaining window; that is reported, not hidden (next bullet). Ollama keeps its native behavior (no `num_predict` change).
+  - **Truncation is a failure with its own reason.** The harness reads `choices[0].finish_reason` (Prism) and `done_reason` (Ollama) into `ModelTelemetry.finish_reason`. When it is `length`, `execute_task` returns `success=False` and **writes no file**, even if the reply holds complete-looking `file:` blocks (a multi-file reply cut off after the first block would otherwise apply a partial change). The error says the reply was truncated, names the completion tokens and the budget, and suggests narrowing with `--target-file`; it is never the generic "no recognizable file code blocks". `raw_response` is kept in the `HarnessResult`.
+  - **Bounded recovery.** The self-healing loop counts a truncated reply like any harness failure (it uses the same retry budget and ends `FAILED` with the reason in the `harness` step), but its repair prompt differs: it says the previous reply was cut off and that no file was written (so every needed file must be re-sent), and asks for a compact reply with no explanation or reasoning text. The operator hint of the error text (`--target-file`) is not shown to the model. The request itself cannot shrink, so a persistent truncation ends `FAILED` when the retries run out, with the truncation reason in the `harness` step.
+  - **Reasoning is a diagnostic, never code.** `message.reasoning_content` (Prism) and `thinking` (Ollama) are never parsed for `file:` blocks and never written to disk. Only their length is recorded (`ModelTelemetry.reasoning_chars`). An empty, whitespace-only or `null` `content` with non-empty reasoning fails with an error that says so (reasoning present, no answer), distinct from truncation when `finish_reason` is `stop`.
+  - **Evidence.** `ModelTelemetry` gains the additive fields `finish_reason: str | None` (of the last call), `max_tokens: int | None` (requested budget, at least 1; largest across calls) and `reasoning_chars: int` (summed). They are written to `telemetry.json` and `manifest.json`; manifests without them still load.
 
 ### 3.2.1. Split-Model Architecture: Planner & Executor (`dark_factory.planning`)
 
@@ -205,6 +212,10 @@ class ExecutionPlan:
 - **Fail-Safe Planning**:
   - If a reasoning model emits malformed JSON or conversational prose, the planner wraps the raw output into a standard fallback `ExecutionPlan` rather than failing the run.
   - The operator can bypass the planning phase via `--no-plan` (`TaskSpec.skip_plan = True`).
+- **Endpoint routing (DF-LIVE-01):** a planner harness built for a `planner_model` different from the coder's model is derived from the
+  coder harness (`LocalCoderHarness.with_model(model)`) and keeps its `ollama_url`, `prism_url`, `timeout` and `max_num_ctx`; it must never fall back to
+  the default endpoints. The model that a harness is built for is the only thing that changes. With no `planner_model`, the planner uses the coder harness as is (it never switches to `TaskSpec.model`). The auditor and the mutator reuse the coder harness when it is a `LocalCoderHarness`; a non-`LocalCoderHarness` harness that the mutator replaces with a default `LocalCoderHarness` is outside this item (see the plan's deferred note). Reason: with `--prism-url`/`--ollama-url` set, a derived harness on the defaults would load a model on an engine
+  the operator excluded (observed 2026-10-03: ~9 GB VRAM taken by an unintended Qwen load, then Prism `503 insufficient_resources`).
 - **Evidence & Operator Surfaces**:
   - The plan is saved as `.factory/runs/<RUN_ID>/plan.md` in the evidence locker.
   - Embedded into `EvidenceManifest.execution_plan`, rendered in `dark-factory describe`, and displayed on the web dashboard.
@@ -220,6 +231,10 @@ class ExecutionPlan:
   - Before verification, protected paths are restored to `base_rev` (unless `--allow-gate-edits`).
   - Default protected set = every path-like argv token of the configured steps (matched by prefix removal, never character stripping) plus `tests`, `test`, `test.sh`, `pytest.ini`, `tox.ini`, and the test-runner configuration files `pyproject.toml`, `setup.cfg`, `conftest.py` (any depth), `.coveragerc`, `sitecustomize.py`, `usercustomize.py`.
 - **No-op is not success**: a run whose gates pass but whose patch is empty ends `FAILED` (`reason: empty_patch`); only a non-empty, verified patch may reach `AWAITING_REVIEW`.
+- **Patch scope is a gate (DF-LIVE-06a):** a run whose gates pass and whose patch is non-empty is still `FAILED` (`reason: out_of_scope_patch`) when the patch touches a path outside the task's scope. Pure function `check_patch_scope(paths, target_files) -> list[str]` (`paths` are the files of the diff) (module `dark_factory.verification.scope`) returns the offending paths, decided by exit-free deterministic rules, never by a model:
+  1. A path is a **placeholder** when two consecutive components are `path`, `to` (the model copied the prompt's `path/to/file.ext` example), for example `path/to/frost_stats.py`.
+  2. When `TaskSpec.target_files` is non-empty, every path the patch adds, modifies or deletes must equal a target or lie below it (a target may be a file or a directory, `pkg` and `pkg/` are the same; `.` is the whole repository; an empty target is ignored); anything else is out of scope. With no `target_files`, only rule 1 applies.
+  Paths come from `parse_patch_files` (patches are rename-free). The gate fails closed: a `diff --git` header whose path cannot be parsed is reported as the violation `<unparseable diff header>`. Matching is case-sensitive. Known trade-offs (accepted): rule 1 also blocks a legitimate `.../path/to/...` directory in a repository, and the single opt-out disables both rules. The check runs after the empty-patch check on the final diff, so it sees what `diff.patch` contains. A violation is **not** retried by self-healing (the harness cannot delete files): the run ends `FAILED`, `diff.patch` and all evidence are preserved, `operator_notes` lists the offending paths (at most 10, then a count), and the status event payload is `{"reason": "out_of_scope_patch", "paths": [...]}`. Opt-out: `TaskSpec.allow_out_of_scope = True` (CLI `--allow-out-of-scope`), recorded in `operator_notes` as bypassed; default `False`. Removed docstrings or imports in a target file are **not** part of this gate (advisory quality analysis only).
 - **P0 runner integrity:** with gate protection enabled, Python `-m` gate modules (including dotted module names) and recognized Python console tools have their root import module/package restored to the trusted baseline before execution. Pytest's `_pytest` and `pluggy` bootstrap imports are protected too. This protection is additive even when explicit `protected_paths` replace test-path defaults. Ignored shadow files, packages and bytecode must be included in restoration; a restoration failure must prevent gate execution. Existing `allow_gate_edits` remains an explicit bypass. Application source remains editable and importable by tests. This is repository tamper protection, not host process isolation or a guarantee for arbitrary dynamic imports or shell-script runners. Normative reference: `docs/verification-gates.md`.
 - **Self-Healing Loop**:
   - If a gate fails, the runner packages:
@@ -236,6 +251,12 @@ class ExecutionPlan:
     Fix the errors so that the verification gate passes cleanly.
     ```
   - Loops up to `max_healing_attempts`. If it fails after all retries, the run status is marked `FAILED` and changes are preserved for operator inspection.
+  - **Healing attempt counting semantics (DF-LIVE-04):**
+    - The self-healing loop runs 1 initial task execution plus at most `max_healing_attempts` (or `max_retries`) repair attempts.
+    - `healing_attempts` counts the number of repair attempts made after the initial attempt. A run that passes on the initial attempt records `healing_attempts = 0`.
+    - Each subsequent repair attempt triggered by either a deterministic gate failure or a harness generation/parse failure is numbered `REPAIR ATTEMPT #K OF max_retries` (`1 <= K <= max_retries`).
+    - If the run fails because retries are exhausted, `healing_attempts` equals `max_healing_attempts` (never `max_retries + 1`).
+    - Both failure modes share identical budget checking: before initiating repair `#K`, if `healing_attempts >= max_retries`, the loop terminates without incrementing the counter beyond `max_retries`.
 
 - **Adversarial Red-Team Gate (`dark_factory.verification.adversarial`)**:
   - **Position**: Executes immediately following successful deterministic verification gates, before transitioning to `AWAITING_REVIEW`.
@@ -245,7 +266,7 @@ class ExecutionPlan:
     2. *Boundary invariants*: Missing edge-case handlers, zero-length collections, nullability.
     3. *Security*: Traversal attacks, command injection, secret leakage, or unsafe I/O.
     4. *Regression risk*: Architectural drift, broken contracts, or CPU/memory leaks.
-  - **Output**: An `AdversarialReport` containing structured findings with severity levels (`INFO`, `WARN`, `CRITICAL`).
+  - **Output & Strict Schema Validation**: An `AdversarialReport` containing structured findings with severity levels (`INFO`, `WARN`, `CRITICAL`). The model JSON response must strictly conform to the expected schema: `passed` must be a boolean (`True` or `False`), `summary` must be a string, and `findings` must be a list of objects where each item is a mapping containing `severity` (in `INFO`, `WARN`, `CRITICAL`), `category` (string), `summary` (string), and `details` (string). Any missing required field, non-boolean `passed` (e.g. string `"false"` or `"true"`), non-list `findings`, or invalid finding entry fails schema validation. A schema violation yields an unsuccessful audit (`passed: False`, `summary` describing the schema failure) with an explanatory `WARN` finding in category `regression` detailing the schema error.
   - **Advisory only**: The audit never changes `final_status`; `passed` is derived from the findings (no `WARN`/`CRITICAL`), never taken from model text.
   - **Operator Surface**: Embedded into `EvidenceManifest.adversarial_report`, rendered by `dark-factory describe` and `dark-factory review`, and saved to `.factory/runs/<RUN_ID>/adversarial.md`.
 - **Active Adversarial Mutation (`dark_factory.verification.adversarial_mutator`)**:
@@ -312,20 +333,39 @@ Stored at `.factory/runs/<RUN_ID>/`:
 - **`EvalScenario`** (`dark_factory.eval.scenarios`): a frozen dataclass — `name: str`, `description: str`,
   `build_repo: Callable[[Path], None]` (scaffolds a throwaway git repo with a specific, known bug at the
   given path), `task_prompt: str`, `verification_steps: Callable[[], list[VerificationStep]]` (a factory,
-  since argv embeds `sys.executable`), `protected_paths: list[str]`, `max_healing_attempts: int`,
+  since argv embeds `sys.executable`), `protected_paths: list[str]`, `target_files: list[str]`, `max_healing_attempts: int`,
   `timeout_minutes: float`. `SCENARIOS: dict[str, EvalScenario]` is the fixed registry (`primes`,
   `calculator`, `textutils`, `csvparse` at introduction). The same `build_*_repo` functions back both this
   registry and the `pytest` fixtures in `tests/test_e2e.py` — one scaffolding implementation, not two.
 - **`EvalRunResult`** (`dark_factory.eval.runner`): one real `execute_run` attempt — `scenario`, `run_id`,
   `converged: bool` (`status == AWAITING_REVIEW`), `status`, `healing_attempts`,
   `repeated_failure_streak_fired: bool`, `duration_sec`, `prompt_tokens`, `completion_tokens`,
-  `tokens_per_sec`, `operator_notes`.
+  `tokens_per_sec`, `operator_notes`, `error: str | None = None` (existing additive exception diagnostic; absent on ordinary model/gate failure).
 - **`EvalReport`**: `started_at`, `finished_at`, `model`, `ollama_url`, `prism_url`,
   `results: list[EvalRunResult]`, `scenario_summary()` (per-scenario convergence rate and average healing
-  attempts). Persisted as JSON at `.factory/evals/<ISO-timestamp>.json`.
+  attempts, backend/runtime exception count and stuck status). Persisted as JSON at `.factory/evals/<ISO-timestamp>.json`.
 - **Isolation invariant**: `run_eval(...)` drives scenarios through a **separate**
   `DurableEngine(storage_dir / "eval-runs")`, never the operator's main `.factory` run journal — throwaway
   scaffold-repo runs must never appear in `dark-factory list`/`review` or the dashboard's Runs view.
+- **Model propagation (DF-LIVE-01):** `run_scenario(...)` and `run_eval(...)` take the evaluated `model`, and every `TaskSpec` they build carries it
+  as `TaskSpec.model` (`planner_model` stays `None`, so the planner uses the same model). Planner, coder and auditor therefore run on one model and one
+  endpoint configuration; no attempt may touch the default `qwen2.5-coder:14b` unless it is the evaluated model.
+- **Campaign resilience and backend error handling (DF-LIVE-05):**
+  - An attempt whose execution encounters a backend or runtime exception (e.g. `LocalEngineOfflineError`, Prism 503, connection dropped) is captured as an `EvalRunResult` with `converged = False`, `status = "FAILED"`, `error = str(exc)`, and the attempt's elapsed duration.
+  - `EvalRunResult` gains an additive optional field `error: str | None = None`.
+  - **Bounded continuation**: when an attempt fails due to a backend exception, the runner continues with subsequent attempts unless 3 consecutive backend errors occur across attempts, in which case further attempts are halted to prevent runaway retry loops against a down engine.
+  - **Campaign reporting**: `run_eval` always returns an `EvalReport` with all executed attempts (including failures). In `cmd_eval`, `save_report` persists the report to `.factory/evals/<timestamp>.json` and outputs the summary table.
+  - **Cancellation separation**: `KeyboardInterrupt` and `SystemExit` are not swallowed as model or engine errors; completed attempts are saved, and the interrupt is propagated.
+  - **Exit code**: `cmd_eval` returns `0` only if all scenarios converged at least once AND no backend exceptions occurred. Any attempt with an unhandled backend error causes a non-zero exit code (`1`).
+- **Scenario acceptance and patch-scope enforcement (DF-LIVE-06):**
+  - **`EvalScenario` target files**: Every `EvalScenario` declares non-empty `target_files: list[str]`. `run_scenario` propagates `target_files` to `TaskSpec.target_files`.
+  - **Patch-scope enforcement**: Every eval scenario run strictly enforces that generated patches modify only paths listed in `scenario.target_files` (or subpaths) and contain no placeholder paths (`path/to/...`). Any violation fails the run with `status = RunStatus.FAILED` and `reason: out_of_scope_patch`.
+  - **Gate protection**: Every `EvalScenario` declares `protected_paths: list[str]` covering all test files in the scaffold (e.g. `test_*.py`). The verification runner restores these paths before running verification, preventing models from passing by weakening or deleting tests.
+  - **Behavioral acceptance & edge-case coverage**: Scaffold repositories must include test coverage for boundary conditions and negative cases to prevent weak implementations (e.g. trivial stubs or partial implementations that raise unhandled exceptions on untested inputs) from falsely passing:
+    - `primes`: `is_prime` must return `False` for integers `<= 1` (including 0, 1, and negative numbers, never raising `ValueError` or exceptions), `True` for prime numbers (including 2, 3, 5, 7, 11, 13, 17, 19, 23, 29), and `False` for composite numbers (including 4, 6, 8, 9, 10, 12, 15, 25, 27, 49).
+    - `calculator`: `multiply` must handle zero and negative numbers; `dispatch` must route `multiply` correctly and raise `ValueError` for unknown operators.
+    - `textutils`: `slugify` must collapse repeated whitespace across spaces, tabs (`\t`), and newlines (`\n`) to a single hyphen, strip leading/trailing whitespace, and preserve lowercase conversion.
+    - `csvparse`: `parse_csv_line` must handle empty unquoted fields, empty quoted fields (`""`), trailing commas, single fields without delimiters, and escaped quotes (`""` inside quoted fields).
 - **CLI**: `dark-factory eval [--scenario NAME ...] [--repeat N] [--model M] [--ollama-url U] [--prism-url U]
   [--storage-dir D] [--keep-repos] [--list]`. Gates on `LocalCoderHarness.check_health()`; exits `1` with a
   clear message (no silent degradation) when neither Ollama nor Prism is reachable. Never invoked by the

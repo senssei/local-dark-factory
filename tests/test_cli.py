@@ -560,3 +560,74 @@ def test_cli_review_prints_analysis_summary(tmp_path: Path, capsys):
     out = capsys.readouterr().out
     assert "PERFORMANCE & QUALITY ANALYSIS: [WARN]" in out
     assert "Peak VRAM 94%" in out
+
+
+def _scope_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "CLI Test"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "cli@test.local"], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=repo, check=True, capture_output=True)
+    (repo / "readme.txt").write_text("baseline\n")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "baseline"], cwd=repo, check=True, capture_output=True)
+    return repo
+
+
+def test_cli_run_fails_on_placeholder_path_unless_out_of_scope_is_allowed(tmp_path: Path, monkeypatch):
+    class StrayHarness(AgentHarness):
+        def execute_task(self, sandbox, task_prompt, target_files=None):
+            sandbox.write_file("path/to/x.txt", b"x")
+            return HarnessResult(success=True, modified_files=["path/to/x.txt"])
+
+    monkeypatch.setattr(cli_module, "LocalCoderHarness", lambda **kwargs: StrayHarness())
+    repo = _scope_repo(tmp_path)
+    base = ["run", "--repo", str(repo), "--task", "t", "--no-verify", "--no-plan", "--no-adversarial"]
+
+    assert main([*base, "--storage-dir", str(tmp_path / "a")]) == 1
+    assert main([*base, "--allow-out-of-scope", "--storage-dir", str(tmp_path / "b")]) == 0
+
+
+def test_cli_eval_backend_error_returns_exit_1_and_saves_report(monkeypatch, tmp_path: Path, capsys):
+    from dark_factory.domain.errors import LocalEngineOfflineError
+    from dark_factory.eval.runner import list_eval_reports, load_report
+
+    class OfflineHarness(AgentHarness):
+        def check_health(self):
+            return {"ollama": True, "prism": True}
+
+        def execute_task(self, sandbox, task_prompt, target_files=None):
+            raise LocalEngineOfflineError("Engine went down")
+
+    monkeypatch.setattr(cli_module, "LocalCoderHarness", lambda **kwargs: OfflineHarness())
+
+    res = main(["eval", "--scenario", "primes", "--storage-dir", str(tmp_path)])
+    assert res == 1
+    out = capsys.readouterr().out
+    assert "Saved report:" in out
+    reports = list_eval_reports(tmp_path)
+    assert len(reports) == 1
+    rep = load_report(reports[0])
+    assert len(rep.results) == 1
+    assert rep.results[0].error is not None
+    assert "Engine went down" in rep.results[0].error
+
+
+def test_cli_eval_keyboard_interrupt_exits_130(monkeypatch, tmp_path: Path, capsys):
+    monkeypatch.setattr(cli_module.LocalCoderHarness, "check_health", lambda self: {"ollama": True, "prism": True})
+    monkeypatch.setattr(
+        cli_module,
+        "run_eval",
+        lambda *args, **kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+    res = main(["eval", "--scenario", "primes", "--storage-dir", str(tmp_path)])
+    assert res == 130
+    err = capsys.readouterr().err
+    assert "interrupted" in err.lower()
+
+
+def test_cli_eval_repeat_zero_returns_exit_1(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(cli_module.LocalCoderHarness, "check_health", lambda self: {"ollama": True, "prism": True})
+    res = main(["eval", "--scenario", "primes", "--repeat", "0", "--storage-dir", str(tmp_path)])
+    assert res == 1

@@ -34,7 +34,7 @@ flowchart TD
     Operates 100% locally on workstation hardware (NVIDIA RTX / Apple Silicon). Never makes external cloud API calls ($0.00 token cost).
 
 - :octicons-cpu-24: **Disposable Sandboxes**
-    Eliminates heavyweight Docker overhead by utilizing native `git worktree` isolation with directory sanitization and strict path-traversal prevention.
+    Eliminates heavyweight overhead by utilizing native `git worktree` isolation with directory sanitization and strict path-traversal prevention (repository-level isolation; process sandboxing is tracked in `plan.md` §10.5).
 
 - :octicons-check-circle-24: **Authoritative Verification Gates**
     Verification is deterministic (compiler, linters, test suites). The LLM cannot vote on whether its own code works.

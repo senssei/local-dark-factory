@@ -2,27 +2,299 @@
 
 This plan defines the step-by-step development phases for **`local-dark-factory`** according to the AI-Native SDLC Playbook.
 
+## Current backlog — realigned 2026-10-04
+
+Status: documentation realignment authorized by operator request "Implement the plan" after choosing the whole backlog and reliability/validation first. This authorizes the documentation changes below; it does not authorize implementation or execution of the new backlog items. Existing task-specific authorizations remain recorded in their phases. No public API, invariant, release version or gate policy changes.
+
+`plan.md` is the backlog source of truth. A checked implementation item records work and its gate evidence; it does not imply a clean re-review, live acceptance, commit or publication. Historical measurements below remain dated evidence, not current capability claims. Local ignored evidence must be accompanied by a sanitized reproducible fixture/procedure before it can support a portable regression. P0 runner-shadow protection is delivered (see `REVIEW.md` P0 runner integrity and `tests/test_runner_integrity.py`); the original bypass is historical, with transitive imports and host process isolation outside that fix.
+
+| ID / priority | Implementation | Review / validation | Dependency | Next action |
+|---|---|---|---|---|
+| BL-01 / P1 | Existing fixes implemented | Independent re-review outstanding for post-review fixes in §10.7, §10.15, §14.5, Phase 15, DF-LIVE-01, 06a, Phase 18, 20 and 22 | Scoped final diffs and historical findings | Fresh local-model re-review; preserve accepted risks and operator deferrals |
+| BL-02 / P1 | DF-LIVE-08 implemented | Phase 23 review clean; no post-fix full benchmark | BL-01; confirm served Prism BOS/load-guard revisions | Mistral: four scenarios × three attempts |
+| BL-03 / P2 | Routing, scope and truncation fixes implemented | Residency test and Phi scope probe ran; Qwen calculator and post-parser winter validation remain open | BL-02; fixed model/runtime configuration | Separate remaining live proofs from full Phi/Qwen campaigns |
+| BL-04 / P2 | Existing factory interfaces | Phase 16 real-task campaign incomplete; winter task is prior evidence | BL-02 | Two scratch-clone tasks with pre-recorded acceptance |
+| BL-05 / P2 | Existing failure/recovery handling | Phase 16 controlled campaign not run | BL-04; DF-LIVE-05 implemented | Offline backend, timeout, interruption/recovery, oversized context |
+| BL-06 / P2 | Manifest hash exists; independent journal anchor absent | Future regression required | Separate spec/implementation authorization | SQLite patch-integrity anchor (§10.5) |
+| BL-07 / P2 | CLI discovers gates from host working tree | Future regression required | Separate spec/implementation authorization | Discover against `--base-rev` (§10.5) |
+| BL-08 / P3 | Planner targets displayed only; foreign-harness mutator uses default local harness | Planner operator-deferred; mutator awaits decision | Operator decision on semantics and compatibility | Keep §14.5 finding 9 and DF-LIVE-01 finding 2 separate |
+| BL-09 / P3 | Harness/CLI coverage expanded since original estimate | Current comparable coverage baseline needed | BL-01; deterministic suite | Measure gaps before adding tests (§10.5) |
+| BL-10 / P3 | Phase 15 advisory analysis implemented | Threshold calibration deferred | BL-02–05 and adequate resource/quality measurements | Assess thresholds; convergence alone is insufficient |
+| BL-11 / P3 | `TaskSpec.agent` / `metadata` remain public fields | Compatibility decision deferred | Operator API/version decision | Retain fields until decision (§10.3) |
+| BL-12 / hold | Build/CI and historical GitHub v0.1.0 release recorded | PyPI publication pending; next version undecided | Explicit shipping authorization | §9.4 / §10.4 only when scheduled |
+
+| BL-13 / P2 | Existing Prism routing/eval interfaces | Separate live suite pending; Prism offline in latest session | Reachable native Prism GPU model and sufficient VRAM | Phase 25: Prism-only smoke, residency, CLI and cleanup; separate from BL-02 benchmark |
+
+### Phase 24: Documentation realignment
+
+Status: documentation edits complete under operator request "Implement the plan", 2026-10-04. Gate: `python3 scripts/sdlc_check.py` exited 0 (370 passed, 7 local-engine tests deselected; lint, format, strict docs and changelog PASS); alignment tests separately 5 passed; `git diff --check` clean. Operator deferred live Ollama testing during the documentation session ("testy na zywej ollamie zrobimy potem"); no generation/review calls ran in that session. The later live-test session below resumed existing tests only. Independent local documentation review remains open as 24.3. Documentation-only: no new tests or code generation; verification uses the existing alignment tests and full gate. Historical review records are preserved; this phase does not re-review product changes.
+
+- [x] **24.1 Reconcile backlog and dependencies.** Files: `plan.md`. Proof: each current row links to a single owning task below or an existing phase, historical IDs/evidence retained, no completed fix represented as unimplemented.
+- [x] **24.2 Reconcile existing contracts and progress.** Files: `intent.md`, `spec.md`, `docs/sdlc/intent.md`, `docs/sdlc/spec.md`. Proof: `tests/test_docs_alignment.py::test_docs_sdlc_mirrors_match_root_files`, existing eval/dashboard tests and full gate; goals and invariants unchanged.
+- [ ] **24.3 Independent documentation review and handoff.** Files: `REVIEW.md`, `docs/sdlc/review.md`, `plan.md`. Proof: fresh local-model review of this session's documentation diff, no actionable open findings, `python3 scripts/sdlc_check.py` exits 0. Record evidence and next step without ticking future backlog tasks.
+
+### Live Ollama test session — 2026-10-04 18:42 UTC
+
+Status: operator resumed live tests with "teraz jedz z testami"; existing `local_engine` suite complete: **6 passed, 1 skipped, 370 deselected in 82.86s**. Authoritative evidence: `pytest-live.log`, `junit-live.xml`, `inspection.json`; initial sandbox-only `pytest.log`/`junit.xml` contain seven socket-restriction skips, not a live validation pass. Ollama online, RTX 5070 available; Prism offline. Evidence: `.factory/live-ollama-20261004T184244Z/` (`protocol.json`, `pytest.log`, `junit.xml`, retained scratch evidence). All seven collected tests executed sequentially: six Ollama cases passed; Prism residency test skipped because Prism was offline. All six runs used `qwen2.5-coder:14b` through Ollama with cost_usd=0; five fixture runs reached APPROVED through test-controlled review, eval smoke reached AWAITING_REVIEW. CSV required 2 healing attempts; others required 0. All six preserved hashes/transcripts/telemetry inspected; five tracked source trees clean with only untracked Python caches, one primary worktree each, temporary eval scaffold removed. Full deterministic gate exited 0: 370 passed, 7 local-engine deselected; lint, format, strict docs and changelog PASS. These tests do not close BL-02–05 campaigns. Existing E2E approval/commit operations affect disposable fixture repositories only, not this product repository. No test/source edits, model policy changes, service restart or broader benchmark authorized by this session. Documentation review 24.3 remains separate and open.
+
+### Phase 25: Separate live Prism test suite (BL-13)
+
+Status: operator requested a separate plan entry ("dodaj testy na prismie to planu osobno"); planning only, not run. The latest suite tested Ollama; its Prism residency case was skipped. This suite is distinct from BL-02 Mistral repeated benchmark and BL-03 model diagnostics. Default native model: `Phi-4-mini-instruct-cuda-gpu`; endpoint `http://127.0.0.1:5272/v1`, coder Ollama URL `http://127.0.0.1:1` to prevent fallback. Existing generic E2E tests prefer Ollama and are not evidence of Prism execution. Use current CLI/eval interfaces; no new test/source implementation or service restart authorized.
+
+- [ ] **25.1 Preflight and isolated evidence.** Files: `plan.md`, separate `.factory/live-prism-<timestamp>/` evidence directory. Record doctor, model inventory, served revision, model/context settings, available VRAM and baseline resident models. Proof: native GPU model available and Prism reachable; otherwise record blocked/not run, never a live pass. Preserve operator services and existing models.
+- [ ] **25.2 Prism residency/routing regression.** Files: existing `tests/test_eval_runner.py::test_eval_real_prism_model_leaves_no_stray_model_loaded`, `plan.md`, separate log/JUnit and retained fixture evidence. Proof: test passes without a skip, no new Ollama resident model, configured Phi model only in Prism; inspect backend telemetry and confirm unload. The regression checks routing, not model convergence.
+- [ ] **25.3 Prism-only functional smoke and CLI.** Files: `plan.md`, separate eval/run evidence and scratch repositories. Via current CLI run four scenarios (`primes`, `calculator`, `textutils`, `csvparse`) once each with explicit native model and disabled Ollama URL; exercise one scratch `run` plus `describe` round trip with explicit target/protected paths and argv gates. Proof: each attempt has a structured terminal result and Prism telemetry, mandatory gates/scope authoritative; record convergence, errors, truncation and healing independently. Failures remain outcomes, not successful acceptance. Do not assert a nondeterministic minimum healing count; do not approve/apply to the product repo. No repeats/model comparison: those belong to BL-02/03.
+- [ ] **25.4 Evidence and cleanup acceptance.** Files: `plan.md`, separate inspection report and preserved manifests/patches/transcripts/telemetry. Proof: patch hashes match, zero cloud cost, original scratch sources unchanged (no apply), no orphan worktrees, unload test-loaded model through existing Prism API; full deterministic gate green. Report model failures separately from infrastructure defects and retain any unsupported case for a separate SDLC item.
+
+### Follow-up acceptance and authorization
+
+All items below are **backlog only, not newly authorized**. Existing deferrals require operator decisions; implementations require their own spec, red regression, local code/test generation, independent review and full gate. Operational tasks use existing interfaces and local models, with no host patch approval/apply or inference-service shutdown.
+
+- [ ] **BL-01 Re-review outstanding fixes.** Files: `REVIEW.md`, `docs/sdlc/review.md`, `plan.md`; inspect the scoped source/tests named in the owning phases. Proof: fresh stateless local reviewer receives artifacts, final scoped diffs and original findings; reproducible findings triaged, accepted risks/deferrals distinguished, no actionable open finding and full gate green. Do not erase prior reviewers or claim their reviews covered later fixes.
+- [ ] **BL-02 Post-DF-LIVE-08 Mistral benchmark.** Files: `plan.md`, separate `.factory/` evidence root. Procedure: confirm served Prism revision includes P24 BOS and P23 load guard, freeze scenario/model/runtime/context settings, disable Ollama routing via the existing URL option, run all four scenarios × three repeats sequentially, unload via existing Prism interface between models. Proof: 12 structured outcomes with reasons, hashes, transcripts/telemetry, patch-scope checks, clean scratch sources and no orphan worktrees. Model failure is a measured outcome, not an incomplete campaign. Current reports predate DF-LIVE-08.
+- [ ] **BL-03 Remaining live proofs and diagnostics.** Files: `plan.md`, separate `.factory/` evidence root; existing `tests/test_eval_runner.py::test_eval_real_prism_model_leaves_no_stray_model_loaded` is prior passed residency evidence. Run Qwen3-4B `calculator` (Phase 18 optional proof) and the winter task again after DF-LIVE-08; Phase 16 already records the earlier scope rejection. Proof: complete evidence explains success, truncation or scope failure. Track full Phi/Qwen four-scenario × three-repeat campaigns separately, subject to scope authorization and resource availability. Diagnose reasoning/output budget with fixed settings first; no new budget API, `/no_think` policy or threshold adjustment presumed.
+- [ ] **BL-04 Two real repository tasks.** Owning task: Phase 16 real repository tasks. Files: `plan.md`, scratch clones and separate evidence root. Before execution record two chosen tasks (one known failing test, one 2–3-file task), baseline revision, prompts, target/protected paths, argv gates and time limits. Proof: mandatory gates pass, human patch inspection, complete evidence, original source unchanged and sandbox cleanup; failure remains recorded and does not tick successful acceptance. Any test/code generation runs through LocalCoderHarness/local endpoints.
+- [ ] **BL-05 Controlled exit-path campaign.** Owning task: Phase 16 controlled failures. Files: `plan.md`, scratch repositories and separate evidence root. Proof: offline endpoints produce structured errors/partial reports; deadline produces `TIMED_OUT`; interruption produces `CANCELLED` with preserved evidence; recovery after process interruption is repeatable; oversized context has explicit diagnostics. Inspect evidence appropriate to each path and repeated cleanup/recovery. Terminate only the campaign process, never the operator's inference service; document cases unsupported by existing interfaces before adding implementation.
+- [ ] **BL-10 Threshold assessment.** Files: `dark_factory/analysis/analyzer.py`, `tests/test_analysis.py`, `spec.md`, mirrored spec, `plan.md` (future authorized change only). Proof: use post-fix benchmark plus real-task/failure data and actual resource samples; existing threshold-boundary tests remain green. Propose any calibration separately with rationale and boundary regressions. Missing adequate measurements keep tuning blocked; never tune mandatory gates to improve convergence.
+
 ---
 
-## Priorities (re-ranked 2026-10-02; release deprioritized)
+## Phase 16: Real-live validation campaign (2026-10-03)
 
-Order of the open work, highest first. Verified against the code on 2026-10-02 (each "open" below was confirmed missing).
-Release is **lowest priority and on hold**: no version bump, tag or PyPI publish until the operator gives an explicit go.
+**Status:** baseline and repeated campaigns complete; 2026-10-04 winter task and pre-DF-LIVE-08 rerun/probes are recorded below. The two-task real repository campaign and controlled failures remain open (BL-04/05). Authorized by operator request "dodaj do planuj i jedziemy". Operational validation of existing behavior in spec.md §3.7; no source/test generation, invariant changes, shipping or threshold tuning authorized by this campaign. Start with smoke and 4 × 5 benchmark; retain evidence and record failures without changing implementation.
 
-1. **§10.15 context window** (DONE 2026-10-02, review pending; was open: no `num_ctx` in `harness/local_coder.py`, no `TaskSpec.target_files`). A real defect: Ollama's
-   2048-token default silently truncates every prompt over ~2k tokens, including self-healing prompts and the planner/auditor/mutator
-   calls (14.5 finding 7). It also distorts the tok/s and VRAM numbers that Phase 15 reports. Needs operator approval of its plan first.
-2. **Adversarial follow-up P1** (open: `_parse_response` does no type checks): strict audit schema, small and test-first.
-3. **Adversarial follow-up P2**: align user-facing sandbox claims with the documented isolation limit (docs only).
-4. **Phase 15 threshold tuning**: run `dark-factory eval` / the §10.15 step 6 real-model runs once, then adjust the constants in
-   `dark_factory/analysis/analyzer.py`. Defaults are unmeasured.
-5. **14.5 finding 9** (planner `target_files` into `TaskSpec`): depends on §10.15 item 3.
-6. **§10.5 backlog**: `patch_sha256` in the `events` table (today `review_run` verifies it only `if manifest.patch_sha256`),
-   coverage on `local_coder.py`/`cli.py`, gate discovery against `--base-rev` (today `cmd_run` inspects the working tree).
-7. **Phase 11 / §10.3 dead `TaskSpec` fields**: forward-looking, needs an explicit decision before any work.
-8. **Release (deprioritized, on hold):** §9.4 PyPI and §10.4 version bump/tag. Note that §9.4 is stale: `v0.1.0` is already tagged and
-   released on GitHub, and Phases 13-15 are new features, so the next version is a decision for the operator (likely `0.2.0`, which is
-   also when the dead `TaskSpec` fields are due for a decision).
+- [x] **Baseline and smoke.** Files: `plan.md`, `.factory/live-20261003/` evidence. Run `python3 scripts/sdlc_check.py`, `.venv/bin/dark-factory doctor`, and `eval --scenario primes --repeat 1`. Proof: green deterministic gate, reachable local engine, saved report and inspectable patch/manifest; verify source repository isolation and worktree cleanup.
+- [x] **Repeated benchmark.** Files: `plan.md`, `.factory/live-20261003/` evidence. Run all four registered scenarios with `--repeat 5 --keep-repos`, sequentially against `qwen2.5-coder:14b`. Proof: 20 recorded attempts; per-scenario convergence, duration, healing attempts, stuck detection and token telemetry, plus evidence/cleanup inspection. CLI exit 0 means each scenario converged at least once, not that every attempt passed. Model failures remain measured outcomes.
+- [x] **Prism-only comparison (operator authorized 2026-10-03).** Files: `plan.md`, `.factory/live-prism-20261003/`. Inventory `/v1/models`; select `Phi-4-mini-instruct-cuda-gpu` (3276.2 MB) and `mistral-7b-instruct-v0.2-cuda-int4-rtn-block-32` (4075.3 MB), both native ONNX Runtime GenAI GPU exports. Exclude `ollama:` proxy entries and CPU exports from this comparison. Smoke each model, then run four scenarios × three repeats per selected model (24 benchmark attempts). Force native Prism routing with `--ollama-url http://127.0.0.1:1`; verify telemetry engine, gates, evidence hashes, protected test paths and cleanup. Rerun deterministic gate this session before ticking. Measure failures as outcomes; do not alter inference services, source code or verification gates. Status: completed; 24 native benchmark attempts and two native smoke attempts; observations and owner backlogs recorded, no fixes.
+- [x] Qwen3-4B native Prism benchmark (operator 2026-10-03: unload all models and return to tests). Files: plan.md and `.factory/live-prism-20261003/qwen3-4b-benchmark/`; run four existing scenarios × three attempts using retained run_native.py, explicit identical TaskSpec/planner/harness model, disabled Ollama URL and existing verification gates. Proof: 12 recorded attempts with backend telemetry, gate evidence, patch/cleanup inspection and full baseline gate. Release all server models before and after; do not change source/tests or resource guards. Status: complete: 12/12 FAILED in 660.87 seconds; manifests/telemetry/transcripts/patches and cleanup inspected, no issues. Native probes confirmed output truncation and empty-content diagnostics; remediation remains backlog only. Qwen unloaded after diagnostics.
+Real repository tasks remain open, with one owning checkbox and acceptance procedure in **BL-04** above. Prior winter runs below are evidence, not completion of the two-task campaign.
+Controlled failures remain open, with one owning checkbox and acceptance procedure in **BL-05** above.
+
+Acceptance: mandatory verification gates determine successful runs; report model convergence separately from orchestrator defects. Require evidence for every completed attempt, inspect cleanup/isolation, and never equate a green model-written patch with operator approval. Five repeats are exploratory, not a reliability guarantee. Any fix follows a separate test-first SDLC item; independent review is required for implementation changes.
+
+### Execution evidence (chronological)
+
+**Ollama `qwen2.5-coder:14b` (baseline)**
+
+- Baseline gate passed outside sandbox: 289 passed, 6 local-engine tests deselected; lint, format, docs, changelog passed. Restricted sandbox blocked sockets (not a product failure). Doctor: RTX 5070 and Ollama online, Prism offline.
+- Smoke: `eval-primes-1-1791015059913`, AWAITING_REVIEW, 34.93 seconds, zero healing attempts; pytest exit 0, patch only changes primes.py, source scratch repo clean and only its primary worktree remains. Report: `.factory/live-20261003/evals/20261003T081134812801Z.json`.
+- Benchmark completed, exit 0: 20/20 AWAITING_REVIEW, no stuck flag. Report: `.factory/live-20261003/benchmark/evals/20261003T081646320221Z.json`. Duration 260.98 seconds. Per scenario: calculator 5/5, mean 9.88s, healing 0; csvparse 5/5, mean 20.21s, healing 1; primes 5/5, mean 10.62s, healing 0; textutils 5/5, mean 16.54s, healing 2.2 (individual counts 2,3,0,2,4).
+- Inspected all 20 manifests: patches match recorded SHA-256, telemetry files present, all scratch source repos clean, each has only its primary worktree. Patch paths contain only intended application files (calculator.py, cli.py, csvparse.py, primes.py, text_utils.py); no test edits. Retained scratch repos are deliberate (--keep-repos), not orphan sandboxes. Host git status contains only plan.md.
+- Next session: select and record two real repository tasks and their acceptance gates before local execution; then controlled failure probes. These stages have not run. Model success in this small sample does not establish production reliability, and no implementation fixes, approval/apply, commits or shipping occurred.
+
+**Native Prism: Phi-4-mini, Mistral-7B**
+
+- Prism interim: deterministic gate green (289 passed, 6 deselected). Two CLI Phi smoke attempts raised LocalEngineOfflineError/Prism 503 because eval.run_scenario leaves TaskSpec.model at default qwen2.5-coder:14b; planner creates a default Ollama harness and reloads Qwen, exhausting VRAM. Read-only diagnosis confirmed; no product fix. Unloaded Qwen via keep_alive=0 and used existing DurableEngine API with TaskSpec.model=planner_model=selected model and the same Prism-only harness for planner/coder/auditor. Reproducible operational driver retained at `.factory/live-prism-20261003/run_native.py`, inventory at `models.json`.
+- Native Phi smoke passed (1 healing), telemetry engine=prism. Patch has extraneous path/to/primes.py and raises ValueError for negative inputs; green scaffold test does not establish patch quality. Phi benchmark: 7/12 AWAITING_REVIEW (calculator 1/3, csvparse 0/3, primes 3/3, textutils 3/3); final report `.factory/live-prism-20261003/phi-benchmark/evals/20261003T082958685934Z.json`. Starting Mistral smoke.
+
+**Native Prism: Qwen3-4B**
+
+- Qwen interim: full gate passed (289 passed, 6 deselected; lint/format/docs/changelog green). Resource baseline after server unload: 8875.2 MB VRAM free, no resident Ollama/Prism models. First calculator attempt failed after five repairs; telemetry completion_tokens=3072 across six calls (512 each). Integration observation: LocalCoderHarness Prism payload omits max_tokens; Prism server defaults to 512 and harness discards finish_reason. Potential output truncation confounds model comparisons; confirm with raw response capture before remediation.
+
+**Campaign summary**
+
+- Native Prism campaign complete: Phi 7/12 (58.3%), Mistral 0/12. Mistral report `.factory/live-prism-20261003/mistral-benchmark/evals/20261003T083500449753Z.json`. All 24 manifests have Prism model telemetry, transcripts and clean retained source repos with no sandbox worktrees; non-empty patch hashes match. Ten Mistral patches are empty with patch_sha256=null (expected empty-patch representation, not hash corruption). Nine Phi benchmark patches contain extra path/to files, including six of seven green patches. Results measure scaffold gates, not patch acceptance.
+- Operator asked to record work only: investigation DF-PRISM-20261003-01 appended to `../03-prism-local/plan.md` (Mistral fallback is intended under I7, not a confirmed Prism defect); cross-project defect-reporting design backlog appended to `../local-sdlc-kit/plan.md`. No source/test changes, commits or pushes in either project.
+
+**Real repository task: `../winter-prognosis` (2026-10-04, Phi-4-mini native Prism, Ollama cut off)**
+
+- Task: implement four functions in `frost_stats.py` (stubs, 4 red tests committed by the operator in `088e989`; factory edits only that file). Gate `pytest test_frost_stats.py`, `--target-file frost_stats.py`.
+- Run 1, before the scope gate: `run-20261004-122826-580f74` AWAITING_REVIEW, 1 healing, 511 tokens. The functions were correct, but the patch also created `path/to/frost_stats.py` and dropped the module docstring (DF-LIVE-06 evidence). Not approved.
+- Run 2, with the scope gate (DF-LIVE-06a): `run-20261004-125558-86b83a` **FAILED**, `out_of_scope_patch`, same patch (2475 bytes, 511 tokens, deterministic), `diff.patch` kept, notes name `path/to/frost_stats.py`. Ollama stayed empty in both runs (DF-LIVE-01 holds); the source repository stayed clean; model unloaded afterwards.
+- Two Prism 503 `insufficient_resources` before run 2 (9.1-9.2 GB free < 9.49 GB required) were the Prism guard working, not a factory defect; the operator restarted `prism serve` (10.6 GB free).
+- Observation: the CLI line after a scope failure is the generic "Task failed verification or generation."; the reason is only in `operator_notes`/`describe`. Candidate follow-up, not planned.
+- The adversarial audit still ran before the scope check (one wasted model call); an early pre-check would save it.
+
+**Prism CUDA repeated benchmark campaign (2026-10-04, post-BOS fix & Waves 1-2)**
+
+- **Baseline & loaded-model residency**: Prism CUDA running on port 5272 with Phase 24 BOS fix active and Phase 19b Ollama load guard committed in `../03-prism-local`. RTX 5070 with 10.65 GB free VRAM baseline. Live test `test_eval_real_prism_model_leaves_no_stray_model_loaded` passed in 16.35s (Item 16.3b): Ollama resident set was empty and Prism unloaded cleanly.
+- **DF-LIVE-05 campaign resilience in action**: When VRAM cache from a previous run held memory (PID 1278840, 8.37 GB free < 8.65 GB required for Mistral), Prism returned 503 `insufficient_resources`. Dark Factory caught the exception, recorded `EvalRunResult(converged=False, status="FAILED", error=...)`, printed summary table, saved `.factory/evals/20261004T174054761133Z.json`, and exited 1 without crashing or losing data.
+- **Mistral-7B rerun (12 benchmark attempts)**:
+  - Command: `dark-factory eval --repeat 3 --model mistral-7b-instruct-v0.2-cuda-int4-rtn-block-32 --ollama-url http://127.0.0.1:1`.
+  - Report: `.factory/evals/20261004T174605518493Z.json`. Duration 224.0s. Result: 0/12 converged (0%). Average decode speed: 83.9 to 104.5 tokens/sec.
+  - Per scenario:
+    - `calculator` (3/3): Mistral generated code blocks for `cli.py` and `path/to/...`. Deterministic verification (pytest) executed and failed with `ImportError: cannot import name 'multiply' from 'calculator'` because `multiply` was defined in `path/to/calculator.py` instead of `calculator.py`. All 3 attempts exhausted 5 healing retries and triggered the repeated failure streak (`stuck: yes`). (DF-LIVE-06 scope gate would have rejected the `path/to/` and `factory.yml` files had pytest passed).
+    - `textutils` attempt 2: DF-LIVE-02/03 truncation detection triggered on Prism (`finish_reason=length`, 640 completion tokens), rejecting partial generation without writing corrupted files.
+    - `primes`, `csvparse`, and `textutils` (1 & 3): Mistral began completions with `" ```file:..."` (a single leading space after `[/INST]`). `_FILE_OPEN_RE` (`^(`{3,})file:(.*)$`) requires 0 leading spaces and failed to match the opening fence (unlike `_FENCE_RE` which permits `^ {0,3}`).
+- **Qwen3-4B diagnostic probe (`primes`, 1 attempt)**:
+  - Report: `.factory/evals/20261004T174737378442Z.json`. Duration 63.3s, 86.4 tokens/sec. Result: 0/1 (FAILED).
+  - DF-LIVE-07 & DF-LIVE-02/03 in action: Telemetry recorded `reasoning_chars: 14469`, `completion_tokens: 4096` across 4 calls (1 initial + 3 repairs, exactly 1024 each), `finish_reason: length`. Qwen3's thinking tokens exhausted the 1024 budget before emitting complete code. The harness accurately reported truncation and never executed reasoning as code.
+- **Phi-4-mini scope gate probe (`primes`, 1 attempt)**:
+  - Report: `.factory/evals/20261004T174823341476Z.json`. Duration 11.5s, 134.1 tokens/sec. Result: 0/1 (FAILED).
+  - DF-LIVE-06 scope gate in action: Pytest verification passed, but the patch created `path/to/primes.py` and `path/to/test_primes.py`. The scope gate rejected the patch with `out_of_scope_patch`, proving the gate prevents weak/extraneous patches from passing the benchmark.
+- All manifests have Prism telemetry, preserved transcripts/patches, clean source repos and no orphan worktrees. Zero cloud tokens ($0.00). Models cleanly unloaded via `POST /v1/unload`.
+
+**Superseded follow-ups** (kept as history; the work is tracked only by the defect backlog below)
+
+- Output-budget integration follow-up -> **DF-LIVE-02 / DF-LIVE-03 / DF-LIVE-07**. Original wording: files `dark_factory/harness/local_coder.py`, `tests/test_harness.py`, `spec.md`, `CHANGELOG.md`; define explicit Prism completion budget and handling/reporting of finish_reason=length, preserving context/resource guards. Proof: red-first request/response regression and a controlled native Qwen rerun; do not silently increase production budgets during this baseline.
+- Factory follow-up on eval model propagation -> **DF-LIVE-01**. Original wording: eval.run_scenario must propagate the selected local model to TaskSpec/planner without losing endpoint routing. Files: `dark_factory/eval/runner.py`, relevant planner wiring if needed, `tests/test_eval_runner.py`, `spec.md`, `CHANGELOG.md`. Proof: failing model/endpoint regression first, then full gate and independent review; reproduction evidence in this Prism campaign. Backlog only; no fix authorized by the operator latest clarification.
+---
+
+## Live-test defect backlog — Dark Factory / Prism integration (2026-10-03)
+
+**Status:** initial backlog-only request was superseded by the recorded task-specific authorizations below. DF-LIVE-01…08 and DF-LIVE-06a are implemented and gate-green; post-review fix re-reviews and remaining live validation are tracked as BL-01…03. Original causes/evidence below describe the pre-fix behavior. IDs below refer to factory defects; expected Prism resource guards, documented template fallback and weak model-generated code are not automatically Prism defects.
+
+Evidence root: `.factory/live-prism-20261003/`. Native results: Phi 7/12, Mistral 0/12, Qwen3-4B 0/12. Qwen report: `qwen3-4b-benchmark/evals/20261003T090109396586Z.json`; twelve manifests have Prism telemetry and preserved transcripts/patches, clean source repos and no orphan worktrees. Full gate green this session: 289 passed, 6 deselected, lint/format/docs/changelog. Ollama and Prism were empty before the Qwen run; Qwen was unloaded again after diagnostics. Evidence is local and ignored; preserve minimal sanitized reproductions with each regression test before relying on it across machines.
+
+### Confirmed defects / reproducible integration failures
+
+- [x] **DF-LIVE-01 — selected eval model propagation (P1, fixed)** (plan: "DF-LIVE-01 implementation" below). Historical failure: `eval --model Phi-4-mini-instruct-cuda-gpu --ollama-url http://127.0.0.1:1` caused planning with the default Qwen/Ollama harness: `run_scenario()` constructs TaskSpec without `model`, then `activity_plan_task()` creates a new harness with default endpoints when models differ. The unintended Qwen load consumes ~9 GB VRAM and Prism returns 503. Files: `dark_factory/eval/runner.py`, `dark_factory/orchestrator/activities.py`, `tests/test_eval_runner.py`, `tests/test_planner.py`, `tests/test_orchestrator.py`, `spec.md`, `CHANGELOG.md`. Proof: regression captures actual model and endpoint identity for planner, coder and auditor under a non-default eval model; explicit distinct planner model also preserves local endpoint/window/timeout configuration. Evidence: `phi-smoke/` and `phi-smoke-retry/` exception manifests, `run_native.py` workaround with explicit TaskSpec model.
+- [x] **DF-LIVE-02 — Prism completion budget is unspecified and ignores calculated output reserve (P1)** (done as 18.1-18.5 below).
+- [x] **DF-LIVE-03 — completion truncation is discarded and misdiagnosed as bad file formatting (P1)** (done as 18.1-18.5 below).
+- [x] **DF-LIVE-04 — harness failures overcount healing attempts (P2)** (done as 19.1-19.4 below).
+- [x] **DF-LIVE-05 — backend exceptions abort eval without a structured campaign result (P2)** (done as 20.1-20.4 below).
+- [x] **DF-LIVE-08 — opening file code block regex rejects CommonMark-valid leading whitespace (`^ {0,3}`) (P2)** (done as 23.1-23.4 below). `_FILE_OPEN_RE = re.compile(r"^ {0,3}(`{3,})file:(.*)$")` in `dark_factory/harness/local_coder.py` allows up to 3 leading spaces matching `_FENCE_RE` and CommonMark specifications, preventing Mistral-7B leading space tokens after `[/INST]` from breaking file parsing.
+
+### DF-LIVE-01 implementation (spec: §3.2.1 "Endpoint routing", §3.7 "Model propagation")
+
+Status: spec written 2026-10-04; implementation authorized by operator request ("zatwierdzam", 2026-10-04). 16.1-16.5 done and gated. Review (fresh general-purpose Claude subagent, diff and artifacts only): 4 findings. Fixed test-first: planner without `planner_model` now uses the coder harness (not `TaskSpec.model`), `with_model` keeps the subclass (`copy.copy`), tests tightened (exact timeout, exact call count, every POST URL recorded instead of a vacuous fake-Ollama assertion, `<=` in the live test). Spec narrowed: mutator fallback for non-`LocalCoderHarness` harnesses is pre-existing and **deferred, pending operator yes** (finding 2). Fixes verified by tests, not re-reviewed independently. 16.3b ran and passed (recorded below). Historical root cause before the fix (2026-10-04): two separate gaps.
+(a) `eval/runner.py` builds `TaskSpec` without `model`; (b) `orchestrator/activities.py:103,115` creates `LocalCoderHarness(model=planner_model)` with default
+endpoints, dropping the operator's `ollama_url`/`prism_url`/`timeout`/`max_num_ctx` (this also affects `dark-factory run --planner-model ... --prism-url ...`).
+Auditor and mutator already reuse the coder harness when it is a `LocalCoderHarness`; `activities.py:443` falls back to defaults only for foreign harness types.
+
+- [x] **16.1 `LocalCoderHarness.with_model()`.** Files: `dark_factory/harness/local_coder.py`, `tests/test_harness.py`. Returns a new harness with the given model and the same
+  `ollama_url`, `prism_url`, `timeout`, `max_num_ctx`; the original is unchanged. Proof: red test (method missing) asserting all five fields.
+- [x] **16.2 Planner uses the derived harness.** Files: `dark_factory/orchestrator/activities.py`, `tests/test_planner.py` (or `tests/test_orchestrator.py`). When `spec.planner_model`
+  differs from the coder model, `planner_harness = harness.with_model(planner_model)`. Proof: red test with a coder harness on non-default URLs and a distinct planner model;
+  the planner harness must carry those URLs.
+- [x] **16.3 Eval propagates the model.** Files: `dark_factory/eval/runner.py`, `tests/test_eval_runner.py` (`cmd_eval` already passes `model=`, so no CLI change or test is needed). `run_scenario(..., model=...)`
+  sets `TaskSpec.model`; `run_eval` forwards its `model`. Proof: red test capturing the `TaskSpec` seen by a fake engine/harness under a non-default model; CLI test that `cmd_eval`
+  with `--model X` yields `TaskSpec.model == X`.
+- [x] **16.3a Loaded-model verification, hermetic.** Files: `tests/engine_fakes.py` (new test helper), `tests/test_engine_routing.py` (new). The helper starts stdlib `http.server`
+  fakes on ephemeral localhost ports: a fake **Prism** (`POST /chat/completions` records the requested `model` and marks it loaded; `GET /status` returns `active_model` like the real
+  `/v1/status`; `GET /models`) and a fake **Ollama** (`POST /api/generate` records and marks loaded; `GET /api/ps` returns the loaded list like the real endpoint). A function
+  `loaded_models(ollama_url, prism_url)` reads `/api/ps` and `/status` and returns what is resident per engine. Test: run `run_scenario` (planner on, one attempt) with
+  `model="Phi-4-mini-instruct-cuda-gpu"`, `ollama_url` pointing at a closed port (as in the live repro, `http://127.0.0.1:1`) and `prism_url` at the fake Prism; the fake replies
+  with a minimal valid plan, then a `file:` block. Assert: (1) the set of models requested at the fake Prism is exactly `{Phi-4-mini-instruct-cuda-gpu}` for planner, coder and
+  auditor calls; (2) `loaded_models(...)` after the run reports only that model; (3) a second test with a distinct `planner_model` shows both models were requested at the
+  configured fake endpoints and none anywhere else (a derived harness on default endpoints would send the planner call to `localhost:11434`, so the planner request would be missing
+  at the fake, which fails the assertion). Red first against the unfixed code: the planner call goes to the default Ollama and the fake Prism sees no planner request. Also unit-test
+  the helper itself (empty engine -> empty set; one request -> that model).
+- [x] **16.3b Loaded-model verification, live (opt-in).** *Run 2026-10-04 (`test_eval_real_prism_model_leaves_no_stray_model_loaded`, 1 passed in 16.35s).* Files: `tests/test_eval_runner.py` (marker `local_engine`, run by hand). Uses the real `loaded_models()` against the real
+  Ollama `/api/ps` and Prism `/v1/status`. Skips unless Prism is reachable. Records the resident set before; runs `primes` once with a native Prism model and `--ollama-url
+  http://127.0.0.1:1`; asserts the resident Ollama set is still empty (no stray Qwen) and Prism's `active_model` is the evaluated model (or `None` after an unload), then releases
+  the model through `POST /v1/unload` (never stops the operator's service). Status: passed on RTX 5070; zero stray models in Ollama, Prism model cleanly unloaded.
+- [x] **16.4 Docs and changelog.** Files: `CHANGELOG.md` (`### Fixed`), `docs/cli.md` or `docs/local-inference.md` if they describe planner routing. Move the two spec bullets out of "planned". Proof: `sdlc_check.py` docs and changelog checks.
+- [x] **16.5 Independent review** (fresh `general-purpose` subagent, diff only), then full gate. Live proof (optional, needs hardware): `eval --scenario primes --repeat 1 --model Phi-4-mini-instruct-cuda-gpu --ollama-url http://127.0.0.1:1`
+  without `run_native.py`; verify no Qwen load. Operator decides whether to run it.
+
+- [ ] **BL-08b / Deferred foreign-harness mutator fallback (DF-LIVE-01 finding 2).** Files: `dark_factory/orchestrator/activities.py`, `tests/test_adversarial_mutator.py`, `tests/test_orchestrator.py`, `spec.md` and mirrored spec. The current fallback builds a default local harness for foreign types. Operator must choose configuration/extension semantics before implementation; proof: configured local routing preserved, supported foreign harness behavior explicit, no unintended model/backend requests. No third backend authorized.
+
+Risks and open questions: the hermetic fakes prove routing and the loaded-model bookkeeping of the fake engines, not real VRAM use; the real residency check is 16.3b, run by hand. `with_model` is added on the
+concrete class, not on `AgentHarness`; other harness types keep today's behavior. Not in scope: DF-LIVE-02..07, any `max_tokens` change, Prism changes.
+
+### DF-LIVE-06a patch-scope gate (spec: §3.3 "Patch scope is a gate")
+
+Status: spec written 2026-10-04 on the operator's request ("dodaj ocene do bramki", scope rule that blocks the run, chosen over an advisory-only evaluation); plan approved by the operator ("tak", 2026-10-04); 17.1-17.4 done and gated. Review (fresh general-purpose Claude subagent): 3 findings plus test gaps. Fixed test-first: fail-open on an unparseable `diff --git` header (now a violation), `--target-file` directory semantics (`pkg`, `pkg/` and `.` behave consistently), tests added (bare dir, `./x.py`, `.`, unparseable header, quoted/space path, >10 paths cap). Accepted risk: rule 1 blocks legitimate `.../path/to/...` directories and one opt-out disables both rules. Fixes verified by tests, not re-reviewed independently. Live evidence: winter run 2 and Phi `primes` scope rejection are recorded in Phase 16; post-DF-LIVE-08 winter validation remains BL-03. Trigger: the winter-prognosis live task (run `run-20261004-122826-580f74`, scratch evidence) passed all gates yet its patch added a placeholder `path/to/frost_stats.py` and removed the module docstring.
+
+- [x] **17.1 Pure scope check.** Files: `dark_factory/verification/scope.py` (new), `tests/test_scope.py` (new). `check_patch_scope(paths, target_files)` per spec rules 1 and 2; the engine passes `parse_patch_files(diff)` (the function takes paths, not a diff, so the module does not import `orchestrator.activities`). Proof: red tests for the exact winter diff shape (`path/to/frost_stats.py` flagged), no target files and a normal patch (no violation), target file only, extra new file outside targets, target directory prefix, deleted file out of scope, `path/tomorrow.py` and `a/path/b/to.py` not flagged, empty diff.
+- [x] **17.2 Engine integration and opt-out.** Files: `dark_factory/domain/types.py` (`TaskSpec.allow_out_of_scope: bool = False`), `dark_factory/orchestrator/engine.py`, `dark_factory/cli.py` (`--allow-out-of-scope`), `tests/test_orchestrator.py`, `tests/test_cli.py`. Proof: red orchestrator tests (a harness that writes `path/to/x.py` next to the fixed file ends `FAILED` with `reason out_of_scope_patch`, `diff.patch` preserved, notes list the path; with `allow_out_of_scope=True` it reaches `AWAITING_REVIEW` and the notes say the check was bypassed; a clean patch is unaffected; empty-patch still wins), CLI test that the flag sets the field.
+- [x] **17.3 Docs and changelog.** Files: `CHANGELOG.md` (`### Added`), `docs/cli.md`, `spec.md` and `docs/sdlc/spec.md` (drop "planned"). Proof: `sdlc_check.py` docs and changelog checks.
+- [x] **17.4 Independent review** (fresh subagent), then full gate. Optional live proof (operator): rerun the winter task; expect `FAILED out_of_scope_patch` for the stray file, evidence preserved. Also rerun the Phi `primes` eval to see how many former green results change (expected: many, DF-LIVE-06 evidence).
+
+Risks and open questions: (1) a hard `FAILED` hides that the gates passed and the real fix was correct; the operator sees it in `operator_notes` and `diff.patch`, and can use the opt-out. An alternative is to strip stray new files before verification (like gate-protected paths); not chosen, because silently discarding model output hides the defect. (2) Rule 2 with `--target-file` forbids legitimate new helper or test files; the opt-out is the escape hatch. (3) The check cannot judge quality (removed docstring, weak edge cases): that stays with the adversarial audit and the operator.
+
+### DF-LIVE-02 / 03 / 07 completion budget, truncation and reasoning (spec: §3.2 "Completion budget, truncation and reasoning")
+
+Status: spec written 2026-10-04 (operator: "jedziemy" after the wave-1 order was agreed); plan approved by the operator ("tak", 2026-10-04); 18.1-18.5 done and gated (337 passed). Review (fresh general-purpose Claude subagent): 4 findings plus test gaps, all fixed test-first: `content: null` no longer crashes the no-answer branch (`or ""`), truncation repair prompt no longer says "unchanged files" or shows the operator hint, `max_tokens >= 1`, aggregated `finish_reason` is None when the last attempt has no telemetry; tests added for null/whitespace content and reasoning containing a `file:` block. Fixes verified by tests, not re-reviewed independently. Optional live proof (Qwen3-4B `calculator`) not run. Historical root cause before the fix: `_call_model` sent no `max_tokens` to Prism (server default 512, `prism/server.py:802,864`), read only `message.content` and `usage`, dropped `finish_reason`/`done_reason` and `reasoning_content`; `execute_task` then reported truncation as "no recognizable file code blocks", and the healing loop repeats the same request. Prism behaves as specified (it clamps to `window - prompt` and reports `length`), so nothing changes in Prism. DF-LIVE-04 (healing counting) is separate and untouched.
+
+- [x] **18.1 Capture and budget.** Files: `dark_factory/domain/types.py` (`ModelTelemetry.finish_reason`, `max_tokens`, `reasoning_chars`), `dark_factory/harness/local_coder.py` (`_call_model`), `tests/test_harness.py`. Prism payload gets `max_tokens=output_reserve`; telemetry records `finish_reason` (Prism `finish_reason`, Ollama `done_reason`), `max_tokens` and `reasoning_chars` (`reasoning_content` / `thinking`). Proof: red tests with mocked `requests.post`: payload contains `max_tokens == output_reserve` (default 1024, and a larger reserve for a big context), telemetry carries `length` / `stop`, reasoning length counted, Ollama payload unchanged (no `num_predict`).
+- [x] **18.2 Truncation and reasoning in `execute_task`.** Files: `dark_factory/harness/local_coder.py`, `tests/test_harness.py`. `finish_reason == "length"` returns `success=False`, writes no file, explicit error (tokens, budget, `--target-file` hint), `raw_response` kept; empty content plus reasoning gets its own error; reasoning is never parsed for `file:` blocks. Proof: red tests: a `length` reply that holds one complete `file:` block writes nothing; a multi-file `length` reply writes nothing; a `stop` reply with the same blocks still writes them; empty content with a Python block in `reasoning_content` writes nothing and says reasoning-only.
+- [x] **18.3 Recovery prompt and telemetry aggregation.** Files: `dark_factory/verification/healing.py`, `dark_factory/storage/evidence.py` (only if the loader needs it), `tests/test_verification.py`, `tests/test_storage.py`. A truncated attempt gets the "reply was cut off, return only the changed files, no reasoning" repair prompt (not the generic format reminder); aggregated telemetry keeps the last `finish_reason`, the largest `max_tokens`, summed `reasoning_chars`. Proof: red tests with a scripted harness: first attempt returns `finish_reason=length`, the second prompt contains the truncation instruction and differs from the format reminder; aggregation test; a pre-change manifest JSON without the new fields still loads.
+- [x] **18.4 Docs and changelog.** Files: `CHANGELOG.md` (`### Fixed`), `docs/local-inference.md` (budget, truncation, reasoning), `spec.md` and `docs/sdlc/spec.md` (drop "planned"). Proof: `sdlc_check.py` docs and changelog checks.
+- [x] **18.5 Independent review**, then full gate. Optional live proof (operator, needs Prism and 10 GB free): rerun the Qwen3-4B `calculator` scenario; expect either a real result or an explicit truncation reason, never "no recognizable file blocks" with empty content. Uses `prism unload` between runs.
+
+Risks and open questions: (1) `max_tokens = output_reserve` may still be too small for a reasoning model that spends its budget on reasoning; the failure is then explicit (`length`) rather than silent, and the operator can raise it by narrowing context or a future setting. A user-configurable budget is not added here. (2) Planner, auditor and mutator also get the explicit budget (1024 by default instead of Prism's 512) and their own fallbacks stay as they are; a truncated planner or auditor reply is not turned into a failure. (3) A test cannot prove that a given model fits the budget; only the live rerun can.
+
+### DF-LIVE-04 healing attempt counting (spec: §3.3 "Self-Healing Loop")
+
+Status: 19.1-19.4 done and gated (341 passed). Independent review (fresh stateless research subagent): NO FINDINGS. Historical root cause before the fix: `SelfHealingLoop.run_loop` incremented `healing_attempts` on the harness-failure branch before checking `healing_attempts > self.max_retries`, whereas gate failures check `healing_attempts >= self.max_retries` before incrementing. On exhaustion, harness failures report `max_retries + 1` (e.g. 6 with limit 5, or 2 with limit 1) instead of `max_retries`.
+
+- [x] **19.1 Red regression tests.** Files: `tests/test_verification.py`. Add tests asserting exact `healing_attempts` and call counts when retries are exhausted by harness failures alone, gate failures alone, and mixed gate/harness failures with `max_retries=1`, `max_retries=2`, and `max_retries=0`. Proof: red test exits 0 on `python3 scripts/sdlc_check.py --red` showing `assert healing_attempts == 1` fails with actual value 2.
+- [x] **19.2 Consistent retry budget check.** Files: `dark_factory/verification/healing.py`. Check `if healing_attempts >= self.max_retries:` before incrementing `healing_attempts` in the harness-failure branch, matching the gate-failure branch. Proof: all new and existing verification tests pass.
+- [x] **19.3 Docs and changelog.** Files: `CHANGELOG.md` (`### Fixed`), `spec.md`, `docs/sdlc/spec.md`. Proof: `scripts/sdlc_check.py` docs and changelog checks pass.
+- [x] **19.4 Independent review**, then full gate. Proof: fresh subagent review with no open findings and `scripts/sdlc_check.py` exiting 0.
+
+Risks and open questions: (1) Does any existing test or dashboard expect `healing_attempts > max_retries`? No, grep confirmed all existing tests assert `healing_attempts <= max_healing_attempts` or specific expected integers. (2) Does this change the number of repair attempts? No: with `max_retries = N`, the model still gets 1 initial attempt plus up to N repair attempts (N + 1 total model calls if all fail).
+
+### DF-LIVE-05 backend exception handling and campaign resilience (spec: §3.7 "Campaign resilience and backend error handling")
+
+Status: 20.1-20.4 done and gated (350 passed, 7 deselected). Stage 6 independent review identified 4 findings (1 HIGH, 2 MEDIUM, 1 LOW); all 4 were reproduced with failing red tests and resolved test-first. Historical root cause before the fix: `run_scenario` and `run_eval` did not catch exceptions raised by `engine.execute_run()` (such as `LocalEngineOfflineError` on Prism 503 / engine disconnect), causing unhandled exceptions to crash the campaign without saving the `EvalReport`, losing completed run results and aborting subsequent attempts.
+
+- [x] **20.1 Red regression tests.** Files: `tests/test_eval_runner.py`, `tests/test_cli.py`. Add tests for: (a) single backend exception on an attempt is captured in `EvalRunResult` (`converged=False`, `status="FAILED"`, `error` populated) and persisted in `EvalReport`; (b) bounded continuation: transient backend error allows subsequent attempts to run; 3 consecutive backend errors halt further attempts in the scenario/campaign; (c) CLI `cmd_eval` returns exit code 1 when backend exceptions occur, while still saving the report and printing the summary table; (d) `KeyboardInterrupt` / `SystemExit` propagates and is not swallowed as a normal failure. Proof: red tests fail on current code with unhandled `LocalEngineOfflineError` instead of structured report / exit code.
+- [x] **20.2 Campaign resilience and bounded continuation.** Files: `dark_factory/eval/runner.py`, `dark_factory/cli.py`. Add `error: str | None = None` to `EvalRunResult`. In `run_scenario`, catch `Exception` from `execute_run` (excluding `KeyboardInterrupt`/`SystemExit`), extract status/notes/error, append `EvalRunResult`. Implement `MAX_CONSECUTIVE_BACKEND_ERRORS = 3` bounded continuation across attempts. In `cmd_eval`, ensure `save_report` is called on partial/final report, summary is printed, and return exit code 1 if any backend error occurred.
+- [x] **20.3 Docs and changelog.** Files: `CHANGELOG.md` (`### Fixed`), `spec.md`, `docs/sdlc/spec.md`. Proof: `scripts/sdlc_check.py` docs and changelog checks pass.
+- [x] **20.4 Independent review**, then full gate. Proof: fresh subagent review reported 4 findings (completed scenario attempts discarded on interruption, scenario-local error counter, missing tests, vacuous truth on empty summary); all reproduced red-first, fixed, and `scripts/sdlc_check.py` exited 0 (350 passed, 7 deselected).
+
+Risks and open questions: (1) Does `save_report` overwrite previous reports if timestamps collide? No, timestamps include microseconds (`%Y%m%dT%H%M%S%fZ`). (2) What if `execute_run` crashes before creating `manifest` (e.g. sandbox creation failure)? `run_scenario` catches the exception and constructs a fallback `EvalRunResult` with status `"FAILED"` and the exception message. (3) Will `KeyboardInterrupt` lose completed runs? No: `run_eval` catches `KeyboardInterrupt`, saves completed results to `EvalReport`, and re-raises.
+
+### DF-LIVE-06 scenario acceptance and patch-scope enforcement (spec: §3.7 "Scenario acceptance and patch-scope enforcement")
+
+Status: 21.1-21.4 done and gated (357 passed, 7 deselected). Independent review reported NO FINDINGS. Historical root cause before the fix: eval scenarios lacked explicit `target_files` and `protected_paths`, allowing models to modify non-target files without failing the patch-scope gate, and scenario test suites lack edge-case coverage (e.g. `n <= 1` in `primes` allows invalid implementations that raise ValueError or return True on 0/1/negatives to pass).
+
+- [x] **21.1 Red regression tests.** Files: `tests/test_eval_scenarios.py`, `tests/test_eval_runner.py`.
+  - In `tests/test_eval_scenarios.py`:
+    - Assert that every registered `EvalScenario` has non-empty `target_files` and `protected_paths`, and that all declared paths exist in the scaffolded repo.
+    - Assert that the strengthened test suites in `build_primes_repo` (negatives, 0, 1 return False; primes return True; composites return False), `build_calculator_repo` (zero, negatives, unknown op raises ValueError), `build_textutils_repo` (tabs/newlines collapsed, casing preserved), and `build_csvparse_repo` (empty fields, trailing comma, single field) fail on baseline broken code and pass on correct implementations.
+  - In `tests/test_eval_runner.py`:
+    - Assert that `run_scenario` propagates `target_files` to `TaskSpec`.
+    - Assert that an eval run with an out-of-scope file (outside `scenario.target_files`) fails with `status == "FAILED"` and `reason: out_of_scope_patch`.
+  Proof: red tests fail on current code with missing `target_files` attribute / assertion failure.
+- [x] **21.2 Scenario target files, gate protection, and edge-case test suites.** Files: `dark_factory/eval/scenarios.py`, `dark_factory/eval/runner.py`.
+  - In `dark_factory/eval/scenarios.py`:
+    - Add `target_files: list[str] = field(default_factory=list)` to `EvalScenario`.
+    - Set `target_files` and `protected_paths` on all scenarios (`primes`: `["primes.py"]` / `["test_primes.py"]`; `calculator`: `["calculator.py", "cli.py"]` / `["test_calculator.py"]`; `textutils`: `["text_utils.py"]` / `["test_text_utils.py"]`; `csvparse`: `["csvparse.py"]` / `["test_csvparse.py"]`).
+    - Update `build_*_repo` test suites with edge-case and boundary coverage.
+    - Clarify task prompts to specify boundary behaviors.
+  - In `dark_factory/eval/runner.py`:
+    - Pass `target_files=list(scenario.target_files)` and `protected_paths=list(scenario.protected_paths)` to `TaskSpec`.
+  Proof: all new and existing tests pass.
+- [x] **21.3 Docs and changelog.** Files: `CHANGELOG.md` (`### Added` and `### Fixed`), `spec.md`, `docs/sdlc/spec.md`. Proof: `scripts/sdlc_check.py` docs and changelog checks pass.
+- [x] **21.4 Independent review**, then full gate. Proof: fresh subagent review reported NO FINDINGS and `scripts/sdlc_check.py` exited 0 (357 passed, 7 deselected).
+
+Risks and open questions: (1) Does strengthening scenario tests break `tests/test_e2e.py`? No: `_FIXED_PRIMES` already implements `if n < 2: return False` and composite checking; we will verify all end-to-end fixtures against the strengthened tests. (2) Does `target_files` propagation prevent the model from creating helper files? Yes: eval scenarios evaluate self-contained fixes within the declared target files. Creating unexpected files is considered an out-of-scope patch.
+
+### Diagnostic and benchmark coverage gaps (not yet confirmed product defects)
+
+- [x] **DF-LIVE-06 — weak green scenarios and extraneous patch paths (P2 investigation).** (Done as DF-LIVE-06a and Phase 21).
+- [x] **DF-LIVE-07 — retain response metadata and separate reasoning diagnostics (P2 investigation).** (Done as Phase 18 alongside DF-LIVE-02/03). Raw `no-think-512.json` reports stop with 110 tokens, empty content and a Python block in reasoning_content; default and explicit-budget probes end with length. This is not proof that /no_think solves the problem or that Prism misclassified the raw generation: owner triage requires raw token/text and template reproduction. Files to inspect: `dark_factory/harness/local_coder.py`, `dark_factory/harness/base.py`, `dark_factory/storage/evidence.py`, corresponding harness/storage tests, `spec.md`; link a confirmed upstream finding to the Prism backlog rather than assigning ownership from empty content alone. Proof: preserve sanitized finish reason, effective output/context limits and empty-content/reasoning status so eval diagnostics explain failures without executing reasoning. Preserve minimal exact prompts and model/runtime revisions for cross-project reproduction.
+
+These entries supersede the shorter model-routing/output-budget notes in Phase 16, which remain historical evidence. Product fixes were implemented under the subsequent authorizations below; backlog realignment makes documentation changes only.
+
+## Priorities (realigned 2026-10-04; release on hold)
+
+The current backlog table is the authoritative order: BL-01 re-review, BL-02 post-parser benchmark, BL-03 remaining live proofs, BL-04 real tasks, BL-05 controlled failures, then integrity/configuration work and deferred improvements. Existing task authorizations remain valid; re-ranking does not authorize new work.
+
+Historical waves 1–2 delivered DF-LIVE-01…07; Phase 23 delivered DF-LIVE-08. Phase 22 delivered strict audit parsing and isolation-claim reconciliation. Their final review/live states remain separate in the table and owning phases. Mistral's 2026-10-04 0/12 rerun included the BOS fix but preceded DF-LIVE-08; Qwen/Phi probes are not full repeat campaigns. Phase 15 tuning waits for adequate post-fix measurements. Release remains last, with no presumed target version.
+
+## Prism cross-project analysis (2026-10-04)
+
+Read-only analysis of `../03-prism-local/plan.md`, `spec.md` and `prism/server.py`; nothing was changed in the Prism repository. Question:
+which planned or in-flight Prism changes affect the factory roadmap, and which DF-LIVE items are really Prism's.
+
+**Prism items that matter to the factory**
+
+| Prism item | State (2026-10-04) | Effect on the factory |
+|---|---|---|
+| Phase 24, BOS token (DF-PRISM-20261003-01) | implemented, reviewed, gate green; uncommitted | The 2026-10-03 Mistral 0/12 predates BOS; the 2026-10-04 rerun includes BOS but predates DF-LIVE-08. BL-02 is the post-parser benchmark; do not merge these cohorts. Qwen3 and Phi were not affected by this fix. |
+| Phase 3 backlog: unknown template families fall back to ChatML | open | Mistral `[SYSTEM_PROMPT]`, Llama 2 and Gemma without template still get ChatML. Keep in mind when interpreting any new 0/N result. |
+| `prism unload` (spec P22) | done, reviewed | Replaces the manual `keep_alive=0` / endpoint calls in `run_native.py`. Use it between models in the repeat campaign. |
+| Phase 19b, Ollama load guard | 19b.1–5 implemented/gated and hardware-tested; 19b.6 independent review open in upstream plan | Directly related to DF-LIVE-01: the historical stray Qwen load took ~9 GB before routing was fixed. DF-LIVE-01 is delivered; retain the guard as a served-runtime prerequisite. |
+| Reasoning separation (Phase 2) | done | Prism already returns `reasoning_content` separately. DF-LIVE-07 is factory-side only (retain and never execute it). |
+| `max_tokens` default 512 and clamp to `window - prompt` with `finish_reason=length` | documented behavior | Historical DF-LIVE-02/03 were factory defects; Phase 18 now sends the budget and retains the reason. Do not file those fixed defects against Prism. |
+| Phase 25, fast-fail `prism pull` | implemented and reviewed; upstream gate recorded green | No factory impact. Only relevant when adding more models to the comparison. |
+| Backlog: ONNX-vs-Ollama A/B with a coding model, quality not only speed | open | Related to BL-02/03, but an ONNX-versus-Ollama A/B is a separate deferred campaign. Run it **through the factory benchmark** (same scenarios, same gates) instead of building a second harness. |
+| Phase 27: warn when a CPU export runs on CUDA | 27.1–5 complete; review findings resolved test-first; upstream gate recorded green | The Phase 16 comparison excluded CPU exports by hand; a Prism warning would make that check automatic. Low priority. |
+| Phase 3 "Outward actions" (issues #5/#6, `0.2.x` release), U1 distribution | operator only / on hold | Independent of the factory. Do not couple the factory's undecided next version to Prism's release. |
+
+**Current dependency order and authorization**
+
+1. Factory integration fixes are implemented; outstanding re-review is BL-01.
+2. Phase 16 records P24 BOS served and P23 guard present during the 2026-10-04 rerun. Upstream artifacts are development evidence, not proof of today's running server revision; reconfirm served revisions and model residency before BL-02. A commit/release is not a runtime prerequisite.
+3. Run BL-02 after that confirmation and BL-01. Use the existing unload interface; no inference-service restart, upstream edits, commits or releases are authorized here.
+4. BL-03 retains Qwen/Phi probes and remaining proofs separately; larger comparison campaigns require their recorded scope authorization. BL-04/05 complete operational validation before BL-10 threshold assessment.
+
+Historical operator decisions (2026-10-04): initial rerun scope was Mistral only with the BOS fix and Ollama guard required. That rerun completed before DF-LIVE-08; this does not authorize a new campaign. Upstream Phase 19b.6 review and U1 distribution remain upstream-owned; neither is silently closed by factory measurements.
 
 ---
 
@@ -177,17 +449,17 @@ Release is **lowest priority and on hold**: no version bump, tag or PyPI publish
 > **ON HOLD, DEPRIORITIZED (operator decision, re-ranked 2026-10-02):** no release for now; lowest priority, see "Priorities". Stale text: `v0.1.0` is already tagged on GitHub and the next version is undecided.
 
 - [ ] Configure PyPI Trusted Publisher for repository `senssei/local-dark-factory`.
-- [ ] Publish initial release `v0.1.0` to PyPI.
+- [ ] Publish the operator-selected release to PyPI (version undecided; historical GitHub v0.1.0 is not proof of PyPI publication).
 - [ ] Verify clean installation in isolated environment: `pip install local-dark-factory`.
 
 ---
 
 ## Phase 10: Post-Release Audit Remediation
 
-**Status:** implemented, verified, and **committed** (2026-09-29: `7ff5abb` eval+dashboard packages, `19f035b` everything else — not pushed to any remote). 145 tests, `ruff check`, `ruff format --check`, `mkdocs build --strict` all green; a full run including every `local_engine` real-model test passes against the operator's real Ollama. Changes are recorded under `[Unreleased]` in `CHANGELOG.md`. 10.6, 10.8, 10.9, 10.10, 10.11, 10.12, 10.13, 10.14, and 12 (eval harness + read-only dashboard) are all fully closed; remaining pre-release work is 10.7 (doc/ops alignment, non-blocking, now 9 items — including a real `_build_context` context-bloat bug found via dogfooding, documented not fixed per operator decision) plus the operator's explicit go-ahead to release.
+**Status:** historical implementations/commits and gates are recorded in the subsections. §10.7 documentation alignment and its context-bloat follow-up are delivered (§10.15); review of later fixes remains BL-01. Open work: §10.3 compatibility decision, §10.5 integrity/configuration/coverage and deferred process isolation, plus release on hold. The former 145-test summary is historical, not the current gate count.
 
 Source: code audit of `main` @ `73fb622`. Every fix ships with a regression test written first (red → green).
-Release is **on hold** (operator decision): Phase 9.4 (PyPI) and the version bump stay open until the operator schedules a release; the target version is decided then (`0.1.1` was the working assumption).
+Release is **on hold** (operator decision): Phase 9.4 (PyPI) and the version bump stay open until the operator schedules a release; the next version is undecided and will be chosen by the operator at release time.
 
 ### 10.1 Verification Integrity (Priority 1)
 - [x] **Fence-safe file block parser** (`harness/local_coder.py`): a `` ```file:`` block must not be truncated by inner
@@ -215,21 +487,19 @@ Release is **on hold** (operator decision): Phase 9.4 (PyPI) and the version bum
 - [x] **Evidence before status**: persist `diff.patch` + `manifest.json` *before* the DB transition to `AWAITING_REVIEW`,
   so a crash can never leave an evidence-less review run.
 - [ ] Remove dead `TaskSpec` fields (`agent`, `metadata`) or wire them up; drop the redundant `.git` check in
-  `GitWorktreeSandbox.create`. **Deferred:** the fields are public API of the published `0.1.0`; decide at `0.2.0`.
+  `GitWorktreeSandbox.create`. **BL-11 / deferred:** these fields are public API of the historical `0.1.0`; retain them until the operator decides compatibility and version policy. Files: `dark_factory/domain/types.py`, `tests/test_domain.py`, `spec.md` and mirrored spec; proof: existing serialized task compatibility and explicit tests for the approved field semantics. Removing the redundant sandbox check is separate low-priority hygiene, not permission to remove API fields; files: `dark_factory/sandbox/worktree.py`, `tests/test_sandbox.py`; proof: repository validation and idempotent creation/cleanup still pass.
 
 ### 10.4 Release Hygiene
-- [x] Update `spec.md` (§2, §3.1, §3.2, §3.3, §3.4) and `CHANGELOG.md` (`[Unreleased]`; renamed to `[0.1.1]` at release).
+- [x] Update `spec.md` (§2, §3.1, §3.2, §3.3, §3.4) and `CHANGELOG.md` (`[Unreleased]`; next release label remains undecided).
 - [x] CI: add `ruff format --check` and `mkdocs build --strict` jobs.
 - [ ] **On hold, lowest priority (see "Priorities"):** bump version (`pyproject.toml`, `dark_factory/__init__.py`), rename `[Unreleased]` in `CHANGELOG.md`, tag. Operator gate; do not start without an explicit go.
 
-### 10.5 Backlog (not in the next release)
-- [ ] Record `patch_sha256` in the SQLite `events` table and verify it unconditionally in `review_run`
-  (the manifest lives next to the patch, so it is not an independent integrity anchor).
-- [ ] Stronger isolation for verification steps (rootless container / `bwrap`, no network): document the current
-  worktree-only limitation in `spec.md` until then.
-- [ ] Raise coverage on `harness/local_coder.py` (`_call_model` with mocked `requests`) and `cli.py` (`run`, `describe`,
-  `review`) from ~55% to ≥85%.
-- [ ] Default gate discovery in `cmd_run` should inspect `--base-rev`, not the working tree.
+### 10.5 Backlog (release scheduling undecided)
+
+- [ ] **BL-06 Independent patch integrity anchor.** Files: `dark_factory/orchestrator/engine.py`, `tests/test_orchestrator.py`, `spec.md` and mirrored spec. Record `patch_sha256` in SQLite events and verify in `review_run`; the neighboring manifest is not an independent anchor. Proof: regressions for patch+manifest tampering, missing anchor and unchanged valid evidence; existing journal compatibility and recovery. Policy for legacy runs without an anchor must be specified and approved before implementation.
+- [ ] **Deferred process isolation (linked to §11.B).** Files: `spec.md`, mirrored spec, `plan.md`; future driver/tests only after a separate decision. Current worktree/host-process limitation is documented and reproduced in Phase 22. `bwrap`/no-network remains a research proposal; container sandboxing is outside current intent. Proof for any future implementation: explicit filesystem/network boundary tests and idempotent cleanup, not merely a worktree test.
+- [ ] **BL-09 Coverage baseline and targeted gaps.** Files: `tests/test_harness.py`, `tests/test_cli.py`, `plan.md`. Measure both modules from the same fresh deterministic run; the old ~55% estimate is obsolete and cached CLI-only data is not a comparable baseline. Proof: reproducible module/branch report and tests for uncovered meaningful error paths; retain ≥85% as the historical target, never substitute coverage for behavior checks.
+- [ ] **BL-07 Gate discovery against base revision.** Files: `dark_factory/cli.py`, `tests/test_cli.py`, `spec.md` and mirrored spec. Proof: selected base contains gates absent from the dirty host tree, host-only gates absent from the base are ignored, invalid base gives a clear failure, explicit `--test-cmd` retains precedence; inspect via structured git argv without modifying host files.
 
 ---
 
@@ -278,7 +548,7 @@ Release is **on hold** (operator decision): Phase 9.4 (PyPI) and the version bum
 
 ### 10.7 Post-Implementation Adversarial Audit — Documentation & Operations Alignment
 
-**Status:** implemented and gate-green 2026-09-30 (150 tests, ruff, mkdocs --strict, changelog); uncommitted; only the `_build_context` item below remains open (documented, not fixed, per operator decision). Review: independent subagent, 10 findings (7 fixed: 1-7; 3 not defects or out of scope: 8-10); fixes verified by tests and the gate only, not re-reviewed. Decisions 2026-09-30 (Foundry: remove; Docker: non-goal; Temporal: seam wording; <100ms: drop). Plan
+**Status:** implemented and gate-green 2026-09-30 (150 tests, ruff, mkdocs --strict, changelog); uncommitted; all listed alignment items are delivered; `_build_context` was subsequently fixed in §10.15, superseding the earlier document-only decision. Post-review fixes await BL-01 re-review. Review: independent subagent, 10 findings (7 fixed: 1-7; 3 not defects or out of scope: 8-10); fixes verified by tests and the gate only, not re-reviewed. Decisions 2026-09-30 (Foundry: remove; Docker: non-goal; Temporal: seam wording; <100ms: drop). Plan
 approved by the operator, 2026-09-30 (including the `intent.md` edits). **Invariant:** `docs/sdlc/{intent,spec,claude,agents}.md` are byte-identical
 copies of the root files and must be edited together. One new test module, `tests/test_docs_alignment.py`, guards the
 grep-able decisions (red first); the remaining items are prose proven by `mkdocs build --strict`.
@@ -671,39 +941,31 @@ Items below are unresolved **strategic** decisions surfaced by the adversarial r
 here so the strategy discussions stay attached to the plan; each item must graduate to a Phase (or be
 formally moved to `Non-Goals` in `intent.md`) before work starts.
 
-### 11.A Foundry Local backend
-- Investigate the Microsoft Foundry Local / ONNX GenAI surface (`local-coder` skill is referenced from
-  `AGENTS.md` but not wired in `LocalCoderHarness`).
-- If pursued: implement a third fallback path in `local_coder.py:_call_model` **after** Prism; accept
-  `FOUNDRY_URL` env var; add a `--foundry-url` CLI flag in Phase 10.7.
-- If not pursued: remove all mentions from `README.md`, `CLAUDE.md`, `AGENTS.md`, `local-inference.md`,
-  and `domain/errors.py:25` (Phase 10.7 first step).
+### 11.A Foundry Local backend — rejected direction
 
-### 11.B Optional container isolation (DockerSandbox / rootless)
-- Decide between (a) ephemeral Docker container, (b) `bwrap` user-namespace sandbox, (c) keep
-  worktree-only and document the limitation. See `Phase 10.5` already-tracked
-  *"Stronger isolation for verification steps"*.
+Operator chose removal as a factory backend on 2026-09-30 (§10.7); delivered and guarded by `tests/test_docs_alignment.py::test_no_foundry_backend_references`. The `foundry-coder` operator skill is distinct. No third-backend task remains active.
 
-### 11.C Temporal worker adapter (Option C realization)
-- If pursued: a separate `dark_factory/orchestrator/temporal_adapter.py` module wrapping the existing
-  `activity_*` functions with `temporalio.activity.defn` annotations and a workflow class for `execute_run`.
-- If not pursued: edit `docs/architecture.md:3` and `activities.py:4` docstring as in Phase 10.7.
+### 11.B Container isolation — outside current intent
 
-### 11.D Custom-harness extension
-- Expose a `--harness` flag plus a documented `AgentHarness` protocol so third parties (no new SDK
-  import) can plug in their own harness. Required to make `dark-factory run` useful for non-`local-coder`
-  workflows.
+DockerSandbox and other container sandboxes are non-goals (§10.7 decision and `intent.md` §4). Keep the worktree-only limitation visible. The non-container `bwrap` research proposal has one owner in §10.5; adopting it requires a separate spec/invariant decision. Do not reactivate containers through a cleanup task.
 
-### 11.E Multi-tenant / shared repo support
-- Currently single-tenant / single-workstation (per `intent.md §4 Non-Goals`). Re-evaluate at the
-  same time as 11.B/11.C.
+### 11.C Temporal adapter — deferred strategy
 
-### 11.F Hardware coverage matrix
-- A single page that tabulates (backend × GPU family × expected model sizes) so an operator can pick a
-  configuration without reading three different docs.
+The seam wording is delivered (§10.7), not an open documentation defect. An actual adapter remains a future decision: files would include `dark_factory/orchestrator/temporal_adapter.py` and dedicated adapter tests. Acceptance before promotion: approved local deployment/dependency design, equivalent durable transitions, recovery and cleanup tests. No worker/dependency is authorized.
 
-> **Operator gate (per `CLAUDE.md`):** Phases 10.6/10.7 ship with the next `0.1.x` release; Phase 11 items
-> are *forward-looking* and require explicit approval before any code is written.
+### 11.D Custom-harness extension — deferred strategy
+
+Files: `dark_factory/harness/base.py`, `dark_factory/cli.py`, corresponding harness/CLI tests and spec. Future acceptance: operator-approved extension interface and local-only routing, existing harness compatibility, explicit error handling. Related foreign-harness mutator fallback is BL-08 / DF-LIVE-01 finding 2; adding a CLI flag is not already approved.
+
+### 11.E Multi-tenant support — outside current intent
+
+Single-tenant operation remains normative (`intent.md` §4). No active multi-tenant implementation task; reconsideration requires explicit intent approval. Shared-repository concurrency tests do not imply multi-tenancy.
+
+### 11.F Hardware coverage matrix — deferred documentation
+
+Files: `docs/local-inference.md`, `plan.md`. Proof: backend/GPU/model-size rows identify measured configurations, runtime/model revisions, evidence and unknown configurations; `mkdocs build --strict` passes. Do not infer supported hardware from an unmeasured model size. No new hardware campaign is authorized.
+
+Strategy items require explicit scope approval under `AGENTS.md`; no version or next-release inclusion is presumed.
 
 ---
 
@@ -809,7 +1071,7 @@ local Ollama both pass); manual checks as noted per-section above.
 
 ## Phase 13: Adversarial Red-Team Pipeline
 
-**Status:** 13.1, 13.2, and 13.3 implemented and gate-green (157 tests, ruff, mkdocs, changelog); moving to 13.4 (operator surfaces: CLI & dashboard).
+**Status:** 13.1–13.5 implemented, including CLI/dashboard and active mutation; historical 157-test gate belongs to an earlier intermediate state. Subsequent review remediation is in §14.5; outstanding re-review of those fixes is BL-01.
 
 Autonomous agents frequently produce code that passes naive unit test suites through hardcoded branches, shortcut logic, or missing boundary checks. The Adversarial Pipeline introduces an automated, local-first Red-Team critic into the factory lifecycle to stress-test patches before human review.
 
@@ -840,7 +1102,7 @@ Autonomous agents frequently produce code that passes naive unit test suites thr
 
 ### 13.5 Active Adversarial Test Mutation (Tier 2)
 
-**Status:** plan approved; ready for implementation following test-first SDLC.
+**Status:** 13.5.1–13.5.4 implemented (checked items below); later fixes and review limitations are tracked in §14.5 / BL-01.
 
 Autonomous coding agents often produce code that passes naive unit test suites through hardcoded branches, shortcut logic, or missing boundary checks. Phase 13.5 extends the adversarial pipeline from passive diff analysis to active test mutation: synthesizing dynamic hostile unit tests (`test_adversarial_probe.py`), executing them against the sandbox, and feeding any failures into `SelfHealingLoop` so the coder must repair its implementation to satisfy both baseline and hostile edge cases.
 
@@ -910,7 +1172,7 @@ Autonomous coding agents often make architectural errors or write premature/hack
 
 ## Phase 14.5: Review Remediation (Phase 13/14 independent review)
 
-**Status:** R1-R19 implemented (R14-R19 address the first independent re-review). Review findings 7 (num_ctx spec vs. code, planned in §10.15) and 9 (planner `target_files` unused) were deferred by the operator (tracked below). Review: round 1 = 13 findings (11 fixed, 2 open), round 2 = 13 findings on the fixes (R14-R19 fixed). R14-R19 were verified by tests only, not re-reviewed independently.
+**Status:** R1-R19 implemented (R14-R19 address the first independent re-review). Review finding 7 (num_ctx spec vs. code) was subsequently delivered by §10.15; finding 9 (planner `target_files` unused) remains operator-deferred (BL-08). Review: round 1 = 13 findings (11 fixed, 2 open), round 2 = 13 findings on the fixes (R14-R19 fixed). R14-R19 were verified by tests only, not re-reviewed independently.
 
 - [x] R1. Dashboard: allowlist finding severity (`INFO/WARN/CRITICAL`, default `WARN`) at parse time and `escape()` the badge class (`views.py`, `adversarial.py`). Test: hostile severity renders no attribute injection.
 - [x] R2. Mutation phase: `cleanup_probe()` in `try/finally`; `RunTimeoutError` during mutation yields `TIMED_OUT` with diff/evidence preserved (`activities.py`, `engine.py`). Tests: exception and timeout mid-probe.
@@ -930,7 +1192,7 @@ Autonomous coding agents often make architectural errors or write premature/hack
 - [x] R18. Deadline clamp works on a per-run copy of the harness instead of mutating the shared one (`activities.py`).
 - [x] R19. Post-probe baseline re-verification failure is reported as such and its step ids are suffixed `:reverify` (`activities.py`, `engine.py`); strengthen test_r5/r2/r8 assertions.
 - [x] **Delivered by §10.15 (2026-10-02); was deferred (operator, 2026-10-01), review finding 7:** `spec.md` describes `num_ctx` clamping, pre-flight failure and truncation detection that the code does not have yet; planner, auditor and mutator call `_call_model` without `num_ctx`. Delivered by §10.15 (items 1 and 4); until then a large diff can be silently truncated by Ollama's default window.
-- [ ] **Deferred (operator, 2026-10-01), review finding 9:** the planner's `target_files` are displayed but not merged into `TaskSpec.target_files`. Wire them up only with path validation against the sandbox root (reject absolute paths and `..`).
+- [ ] **BL-08a / Deferred (operator, 2026-10-01), review finding 9:** planner `target_files` are displayed but not merged into `TaskSpec.target_files`. Files: `dark_factory/orchestrator/engine.py`, `dark_factory/orchestrator/activities.py`, `tests/test_orchestrator.py`, `spec.md` and mirrored spec. Before implementation decide operator-target precedence and how planner targets affect the mandatory scope gate. Proof: validated sandbox-relative paths (reject absolute paths and `..`), operator scope cannot silently widen, existing explicit targets remain effective.
 
 
 ## Phase 15: Performance & Quality Analysis (advisory, hardware-aware)
@@ -954,14 +1216,56 @@ Goal: after green gates, report how the run used this machine (VRAM, GPU, RAM, t
 ### 15.5 Operator surfaces & docs
 - [x] `describe`/`review` print the analysis (WARN badges, resource line); dashboard run-detail card (`views.py`); `docs/` page and `CHANGELOG.md` `[Unreleased]`; full gate `python3 scripts/sdlc_check.py`. Tests: `tests/test_cli.py`, `tests/test_dashboard_views.py`.
 
-## Adversarial review follow-up — 2026-10-02
+## Phase 22: Adversarial Follow-ups P1 (Strict Audit Schema) & P2 (Host Isolation Reconciliation)
 
-Status: P0 complete (2026-10-02), authorized by operator selection “0”. Local Ollama coder drafts integrated with review corrections; no cloud endpoint called. Files: `dark_factory/verification/runner.py`, `dark_factory/sandbox/{base,worktree}.py`, `tests/test_runner_integrity.py`, spec and mirror, verification docs, changelog and review evidence. Red proof: original ignored pytest exploit before implementation; all 12 parametrized shadows, restoration-failure and application-import tests with the restoration call temporarily absent, each `sdlc_check.py --red` exited 0 for the missing protection. Source restored immediately afterward. Green: full `python3 scripts/sdlc_check.py` exited 0 with authorized local sockets (236 passed, 6 local-engine tests deselected; lint, format, strict docs, changelog PASS). Independent fresh local Llama 3.1 8B review: no findings; prior Qwen review was repetitive and inconclusive, not a clean review. Limits: declared runner imports and pytest bootstrap modules only; arbitrary transitive imports and host isolation remain outside scope. Next: operator selects P1 or P2; no shipping authorization.
+Status: 22.1-22.5 done and gated (368 passed, 7 deselected). Stage 6 independent review reported 3 findings (1 MEDIUM, 2 LOW), all reproduced red-first and fixed.
 
-- [x] **P0 — trusted test runner:** define runner/import-path integrity in `spec.md`; update `dark_factory/verification/runner.py` and the relevant execution path in `dark_factory/sandbox/worktree.py`. Add `tests/test_runner_integrity.py` regression coverage with a real temporary worktree, failing baseline test and hostile `pytest.py`; verification must fail and execute the trusted runner. Check shadowing of other configured runners too. Close only after the gate and independent review.
-  Sandbox protocol support in `dark_factory/sandbox/base.py` will distinguish ignored runner-shadow cleanup from ordinary gate-file restoration, preserving unrelated local environments.
-- [ ] **P1 — strict audit schema:** update `dark_factory/verification/adversarial.py` to reject missing required fields, wrong boolean/list/item types and invalid schema as an unsuccessful audit with an explanatory finding. Add cases to `tests/test_adversarial.py` for summary-only JSON and string `"false"`; retain the findings-derived verdict and current advisory policy unless the operator changes the spec.
-- [ ] **P2 — host isolation evidence:** reconcile user-facing sandbox claims in `README.md`/`docs/architecture.md` with the existing `spec.md` isolation limit and planned §10.5 work. Record the synthetic outside-worktree write as evidence; do not mark stronger process isolation implemented.
+- [x] **22.1 Red regression tests for strict audit schema (P1).** Files: `tests/test_adversarial.py`.
+  - Add regression tests covering:
+    - Summary-only JSON (missing `passed` and `findings`)
+    - String `"false"` or `"true"` for `passed` (non-boolean type)
+    - Non-string `summary` (e.g. integer or list)
+    - Non-list `findings` (e.g. dict or string)
+    - Non-dict item inside `findings`
+    - Finding item missing required fields (`severity`, `category`, `summary`, `details`) or having invalid `severity` value
+  - Assert that all these malformed structures result in `AdversarialReport(passed=False, ...)` with a `WARN` finding in category `regression` detailing the schema error.
+  - Proof: `python3 scripts/sdlc_check.py --red tests/test_adversarial.py::<test_name>` fails for the right reason against current parser.
+- [x] **22.2 Strict schema validation implementation (P1).** Files: `dark_factory/verification/adversarial.py`.
+  - Update `_parse_response` to strictly validate `data`:
+    - `isinstance(data, dict)`
+    - `isinstance(data.get("passed"), bool)`
+    - `isinstance(data.get("summary"), str)` and non-empty
+    - `isinstance(data.get("findings"), list)`
+    - Every finding item is a dict with valid `severity` in `_SEVERITIES` and string `category`, `summary`, `details`.
+  - Return `passed=False` with an explanatory `WARN` finding when schema validation fails.
+  - Proof: all new and existing tests in `tests/test_adversarial.py` pass.
+- [x] **22.3 Host isolation documentation reconciliation and evidence (P2).** Files: `docs/architecture.md`, `README.md`, `docs/index.md`, `REVIEW.md`.
+  - Reconcile user-facing docs: explicitly document in `docs/architecture.md`, `README.md`, and `docs/index.md` that `GitWorktreeSandbox` provides repository-level worktree isolation, not host OS process or network isolation (process sandboxing tracked in §10.5).
+  - Record the synthetic outside-worktree write reproduction in `REVIEW.md` as evidence.
+  - Proof: `tests/test_docs_alignment.py` and `mkdocs build -s` pass.
+- [x] **22.4 Docs and changelog.** Files: `CHANGELOG.md` (`### Fixed` and `### Added`), `spec.md`, `docs/sdlc/spec.md`.
+  - Proof: `scripts/sdlc_check.py` docs and changelog checks pass.
+- [x] **22.5 Independent review**, then full gate.
+  - Proof: fresh subagent review reported 3 findings (finding item fields optional, empty summary allowed, masked hostile severity test); all reproduced red-first, fixed, and `python3 scripts/sdlc_check.py` exited 0 (368 passed, 7 deselected).
+
+## Phase 23: DF-LIVE-08 (Opening file block indentation tolerance)
+
+Status: 23.1–23.4 implemented and gate-green (370 passed, 7 local-engine tests deselected); independent review reported NO FINDINGS (see REVIEW.md). Post-fix full benchmark is open as BL-02; the previous Mistral 0/12 campaign predates this fix.
+
+Historical root cause before the fix: `_FILE_OPEN_RE = re.compile(r"^(`{3,})file:(.*)$")` in `dark_factory/harness/local_coder.py` requires 0 leading spaces, whereas `_FENCE_RE = re.compile(r"^ {0,3}(`{3,})(.*)$")` and CommonMark code fence specifications permit up to 3 leading spaces. Models like Mistral-7B begin assistant responses after `[/INST]` with a leading space token, producing `" ```file:<path>"`. This caused 9/12 Mistral attempts in the 2026-10-04 rerun to be discarded as "no recognizable file code blocks" despite complete code.
+
+- [x] **23.1 Red regression tests for opening fence indentation.** Files: `tests/test_harness.py`.
+  - Add tests in `tests/test_harness.py`:
+    - `test_parse_file_blocks_allows_up_to_three_leading_spaces()`: verify that ```` ```file:<path> ```` with 1, 2, or 3 leading spaces correctly parses `<path>` and the file contents.
+    - `test_parse_file_blocks_rejects_four_or_more_leading_spaces()`: verify that 4 or more leading spaces (markdown indented code block) does not parse as a file block.
+  - Proof: `python3 scripts/sdlc_check.py --red tests/test_harness.py::test_parse_file_blocks_allows_up_to_three_leading_spaces` exits 0 showing assertion failure.
+- [x] **23.2 Indentation tolerance in `_FILE_OPEN_RE`.** Files: `dark_factory/harness/local_coder.py`.
+  - Update `_FILE_OPEN_RE` to `re.compile(r"^ {0,3}(`{3,})file:(.*)$")`.
+  - Proof: all new and existing tests pass.
+- [x] **23.3 Docs and changelog.** Files: `CHANGELOG.md` (`### Fixed`), `spec.md`, `docs/sdlc/spec.md`.
+  - Proof: `scripts/sdlc_check.py` docs and changelog checks pass.
+- [x] **23.4 Independent review and full gate.**
+  - Proof: fresh research subagent review (`d8e607b9-9ab0-4dd6-a1df-420fab32677e`) reported NO FINDINGS and `scripts/sdlc_check.py` exited 0 (370 passed, 7 deselected).
 
 
 ## Workspace SDLC unification — 2026-10-02

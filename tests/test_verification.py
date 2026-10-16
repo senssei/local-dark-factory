@@ -583,3 +583,180 @@ def test_self_healing_resets_the_failure_streak_when_the_harness_fails_last():
     assert not passed
     assert executions[-1].step_id == "harness"
     assert streak == 0
+
+
+def test_df_live_03_truncated_reply_gets_a_different_repair_prompt():
+    sandbox = FakeSandbox()
+    sandbox.exec_results = [StepExecution("test", 0, "Pass", "", 0.5)]
+    mock_harness = MagicMock(spec=AgentHarness)
+    mock_harness.execute_task.side_effect = [
+        HarnessResult(
+            success=False,
+            error="Model reply was truncated (finish_reason=length) after 1024 completion tokens (budget: 1024).",
+            telemetry=ModelTelemetry(engine="prism", model_name="m", finish_reason="length", max_tokens=1024),
+        ),
+        HarnessResult(success=True, modified_files=["a.py"]),
+    ]
+    runner = VerificationRunner([VerificationStep("test", ["pytest"])])
+
+    passed, attempts, _, _, _ = SelfHealingLoop(max_retries=2).run_loop(
+        sandbox=sandbox, harness=mock_harness, initial_prompt="Create a.py", verification_runner=runner
+    )
+
+    repair = mock_harness.execute_task.call_args_list[1][1]["task_prompt"]
+    assert passed and attempts == 1
+    assert "ORIGINAL TASK:\nCreate a.py" in repair
+    assert "cut off" in repair
+    assert "no file was written" in repair.lower()
+    assert "no reasoning" in repair.lower()
+    assert "unchanged files" not in repair  # nothing was applied, so every needed file must be re-sent
+    assert "--target-file" not in repair  # an operator hint the model cannot act on
+    assert "Please provide complete file contents formatted inside code blocks" not in repair
+
+
+def test_df_live_03_a_non_truncated_harness_failure_keeps_the_format_reminder():
+    sandbox = FakeSandbox()
+    sandbox.exec_results = [StepExecution("test", 0, "Pass", "", 0.5)]
+    mock_harness = MagicMock(spec=AgentHarness)
+    mock_harness.execute_task.side_effect = [
+        HarnessResult(
+            success=False,
+            error="no blocks",
+            telemetry=ModelTelemetry(engine="prism", model_name="m", finish_reason="stop"),
+        ),
+        HarnessResult(success=True, modified_files=["a.py"]),
+    ]
+    runner = VerificationRunner([VerificationStep("test", ["pytest"])])
+
+    SelfHealingLoop(max_retries=2).run_loop(
+        sandbox=sandbox, harness=mock_harness, initial_prompt="x", verification_runner=runner
+    )
+
+    repair = mock_harness.execute_task.call_args_list[1][1]["task_prompt"]
+    assert "Please provide complete file contents formatted inside code blocks" in repair
+    assert "cut off" not in repair
+
+
+def test_df_live_03_aggregated_telemetry_keeps_last_finish_reason_max_budget_and_summed_reasoning():
+    sandbox = FakeSandbox()
+    sandbox.exec_results = [StepExecution("test", 1, "", "boom", 0.5), StepExecution("test", 0, "Pass", "", 0.5)]
+    mock_harness = MagicMock(spec=AgentHarness)
+    mock_harness.execute_task.side_effect = [
+        HarnessResult(
+            success=True,
+            modified_files=["a.py"],
+            telemetry=ModelTelemetry(
+                engine="prism", model_name="m", finish_reason="length", max_tokens=1024, reasoning_chars=100
+            ),
+        ),
+        HarnessResult(
+            success=True,
+            modified_files=["a.py"],
+            telemetry=ModelTelemetry(
+                engine="prism", model_name="m", finish_reason="stop", max_tokens=2048, reasoning_chars=50
+            ),
+        ),
+    ]
+    runner = VerificationRunner([VerificationStep("test", ["pytest"])])
+
+    _, _, _, telemetry, _ = SelfHealingLoop(max_retries=2).run_loop(
+        sandbox=sandbox, harness=mock_harness, initial_prompt="x", verification_runner=runner
+    )
+
+    assert telemetry.finish_reason == "stop"
+    assert telemetry.max_tokens == 2048
+    assert telemetry.reasoning_chars == 150
+
+
+def test_df_live_03_aggregated_finish_reason_is_unknown_when_the_last_attempt_has_no_telemetry():
+    sandbox = FakeSandbox()
+    sandbox.exec_results = [StepExecution("test", 0, "Pass", "", 0.5)]
+    mock_harness = MagicMock(spec=AgentHarness)
+    mock_harness.execute_task.side_effect = [
+        HarnessResult(
+            success=False,
+            error="boom",
+            telemetry=ModelTelemetry(engine="prism", model_name="m", finish_reason="length", max_tokens=1024),
+        ),
+        HarnessResult(success=True, modified_files=["a.py"], telemetry=None),
+    ]
+    runner = VerificationRunner([VerificationStep("test", ["pytest"])])
+
+    _, _, _, telemetry, _ = SelfHealingLoop(max_retries=2).run_loop(
+        sandbox=sandbox, harness=mock_harness, initial_prompt="x", verification_runner=runner
+    )
+
+    assert telemetry.finish_reason is None
+    assert telemetry.max_tokens == 1024
+
+
+def test_df_live_04_harness_exhaustion_does_not_overcount_healing_attempts():
+    sandbox = FakeSandbox()
+    mock_harness = MagicMock(spec=AgentHarness)
+    mock_harness.execute_task.return_value = HarnessResult(success=False, error="Syntax error")
+    runner = VerificationRunner([VerificationStep("test", ["pytest"])])
+
+    passed, healing_attempts, executions, _, _ = SelfHealingLoop(max_retries=2).run_loop(
+        sandbox=sandbox, harness=mock_harness, initial_prompt="prompt", verification_runner=runner
+    )
+
+    assert not passed
+    assert healing_attempts == 2
+    assert mock_harness.execute_task.call_count == 3
+    assert len(executions) == 1
+    assert executions[0].step_id == "harness"
+
+
+def test_df_live_04_harness_exhaustion_with_single_retry():
+    sandbox = FakeSandbox()
+    mock_harness = MagicMock(spec=AgentHarness)
+    mock_harness.execute_task.return_value = HarnessResult(success=False, error="Bad response")
+    runner = VerificationRunner([VerificationStep("test", ["pytest"])])
+
+    passed, healing_attempts, executions, _, _ = SelfHealingLoop(max_retries=1).run_loop(
+        sandbox=sandbox, harness=mock_harness, initial_prompt="prompt", verification_runner=runner
+    )
+
+    assert not passed
+    assert healing_attempts == 1
+    assert mock_harness.execute_task.call_count == 2
+    assert len(executions) == 1
+    assert executions[0].step_id == "harness"
+
+
+def test_df_live_04_mixed_gate_and_harness_failures_budget_counting():
+    sandbox = FakeSandbox()
+    sandbox.exec_results = [StepExecution("test", 1, "", "Gate failure", 0.5)]
+    mock_harness = MagicMock(spec=AgentHarness)
+    mock_harness.execute_task.side_effect = [
+        HarnessResult(success=True, modified_files=["a.py"]),
+        HarnessResult(success=False, error="Harness parse failed"),
+        HarnessResult(success=False, error="Harness parse failed"),
+    ]
+    runner = VerificationRunner([VerificationStep("test", ["pytest"])])
+
+    passed, healing_attempts, executions, _, _ = SelfHealingLoop(max_retries=2).run_loop(
+        sandbox=sandbox, harness=mock_harness, initial_prompt="prompt", verification_runner=runner
+    )
+
+    assert not passed
+    assert healing_attempts == 2
+    assert mock_harness.execute_task.call_count == 3
+    assert executions[-1].step_id == "harness"
+
+
+def test_df_live_04_harness_failure_with_zero_retries():
+    sandbox = FakeSandbox()
+    mock_harness = MagicMock(spec=AgentHarness)
+    mock_harness.execute_task.return_value = HarnessResult(success=False, error="Immediate failure")
+    runner = VerificationRunner([VerificationStep("test", ["pytest"])])
+
+    passed, healing_attempts, executions, _, _ = SelfHealingLoop(max_retries=0).run_loop(
+        sandbox=sandbox, harness=mock_harness, initial_prompt="prompt", verification_runner=runner
+    )
+
+    assert not passed
+    assert healing_attempts == 0
+    assert mock_harness.execute_task.call_count == 1
+    assert len(executions) == 1
+    assert executions[0].step_id == "harness"

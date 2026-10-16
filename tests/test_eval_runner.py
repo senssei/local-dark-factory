@@ -65,6 +65,49 @@ def test_run_scenario_repeat_count_and_convergence(tmp_path: Path):
     assert all(isinstance(r, EvalRunResult) for r in results)
 
 
+def test_run_scenario_puts_the_evaluated_model_into_every_task_spec(tmp_path: Path, monkeypatch):
+    from dark_factory.orchestrator.engine import DurableEngine
+
+    specs = []
+    original = DurableEngine.execute_run
+
+    def record(self, spec, harness=None, run_id=None, **kwargs):
+        specs.append(spec)
+        return original(self, spec=spec, harness=harness, run_id=run_id, **kwargs)
+
+    monkeypatch.setattr(DurableEngine, "execute_run", record)
+
+    run_scenario(
+        SCENARIOS["primes"],
+        harness_factory=AlwaysFixPrimesHarness,
+        storage_dir=tmp_path / ".factory",
+        repeat=2,
+        model="Phi-4-mini-instruct-cuda-gpu",
+    )
+
+    assert [s.model for s in specs] == ["Phi-4-mini-instruct-cuda-gpu"] * 2
+    assert [s.planner_model for s in specs] == [None, None]
+
+
+def test_run_eval_forwards_its_model_to_the_scenarios(tmp_path: Path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        "dark_factory.eval.runner.run_scenario",
+        lambda scenario, **kwargs: seen.append(kwargs.get("model")) or [],
+    )
+
+    run_eval(
+        ["primes"],
+        harness_factory=AlwaysFixPrimesHarness,
+        model="Phi-4-mini-instruct-cuda-gpu",
+        ollama_url="http://127.0.0.1:1",
+        prism_url="http://127.0.0.1:2/v1",
+        storage_dir=tmp_path / ".factory",
+    )
+
+    assert seen == ["Phi-4-mini-instruct-cuda-gpu"]
+
+
 def test_run_scenario_never_converges_and_flags_stuck(tmp_path: Path):
     results = run_scenario(
         SCENARIOS["primes"],
@@ -201,3 +244,217 @@ def test_run_eval_real_model_smoke(tmp_path: Path):
     assert result.scenario == "primes"
     assert result.status  # some terminal RunStatus value, whatever it turned out to be
     assert result.duration_sec >= 0
+
+
+@pytest.mark.local_engine
+def test_eval_real_prism_model_leaves_no_stray_model_loaded(tmp_path: Path):
+    """Live residency check for DF-LIVE-01: evaluating a native Prism model with Ollama unreachable must not load
+    anything into Ollama, and Prism may hold only the evaluated model. Asserts nothing about convergence. Releases the
+    Prism model afterwards through `POST /unload`; never stops the service. Run by hand with `pytest -m local_engine`."""
+    import requests
+    from engine_fakes import loaded_models
+
+    prism_url = "http://127.0.0.1:5272/v1"
+    ollama_url = "http://localhost:11434"
+    model = "Phi-4-mini-instruct-cuda-gpu"
+    if not LocalCoderHarness(prism_url=prism_url).check_health()["prism"]:
+        pytest.skip("Prism is not reachable on localhost.")
+
+    before = loaded_models(ollama_url, prism_url)
+    try:
+        run_eval(
+            ["primes"],
+            harness_factory=lambda: LocalCoderHarness(
+                model=model, ollama_url="http://127.0.0.1:1", prism_url=prism_url
+            ),
+            model=model,
+            ollama_url="http://127.0.0.1:1",
+            prism_url=prism_url,
+            storage_dir=tmp_path / ".factory",
+            repeat=1,
+        )
+        after = loaded_models(ollama_url, prism_url)
+    finally:
+        try:
+            requests.post(f"{prism_url}/unload", json={}, timeout=60)
+        except requests.RequestException:
+            pass
+
+    assert after["ollama"] <= before["ollama"]  # keep-alive may expire a model; nothing new may appear
+    assert after["prism"] <= {model}
+
+
+class RaisingHarness(AgentHarness):
+    """Stand-in harness that raises an exception during execute_task."""
+
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+
+    def execute_task(self, sandbox: Sandbox, task_prompt: str, target_files=None):
+        raise self.exc
+
+
+def test_df_live_05_backend_offline_error_is_recorded_in_eval_result_and_report(tmp_path: Path):
+    from dark_factory.domain.errors import LocalEngineOfflineError
+
+    storage_dir = tmp_path / ".factory"
+    report = run_eval(
+        ["primes"],
+        harness_factory=lambda: RaisingHarness(LocalEngineOfflineError("Prism 503 insufficient_resources")),
+        model="Phi-4-mini-instruct-cuda-gpu",
+        ollama_url="http://127.0.0.1:1",
+        prism_url="http://127.0.0.1:5272/v1",
+        storage_dir=storage_dir,
+        repeat=1,
+    )
+    assert len(report.results) == 1
+    result = report.results[0]
+    assert not result.converged
+    assert result.status == "FAILED"
+    assert getattr(result, "error", None) is not None
+    assert "Prism 503" in result.error
+
+
+def test_df_live_05_transient_backend_error_allows_subsequent_attempts(tmp_path: Path):
+    from dark_factory.domain.errors import LocalEngineOfflineError
+
+    call_count = 0
+
+    def harness_factory():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return RaisingHarness(LocalEngineOfflineError("Transient 503"))
+        return AlwaysFixPrimesHarness()
+
+    results = run_scenario(
+        SCENARIOS["primes"],
+        harness_factory=harness_factory,
+        storage_dir=tmp_path / ".factory",
+        repeat=2,
+    )
+    assert len(results) == 2
+    assert not results[0].converged
+    assert results[0].status == "FAILED"
+    assert getattr(results[0], "error", None) is not None
+    assert "Transient 503" in results[0].error
+    assert results[1].converged
+    assert results[1].status == "AWAITING_REVIEW"
+
+
+def test_df_live_05_consecutive_backend_errors_halt_campaign_bounded(tmp_path: Path):
+    from dark_factory.domain.errors import LocalEngineOfflineError
+
+    results = run_scenario(
+        SCENARIOS["primes"],
+        harness_factory=lambda: RaisingHarness(LocalEngineOfflineError("Prism persistent 503")),
+        storage_dir=tmp_path / ".factory",
+        repeat=5,
+    )
+    # Bounded to 3 consecutive errors
+    assert len(results) == 3
+    assert all(not r.converged for r in results)
+    assert all(r.status == "FAILED" for r in results)
+    assert all(getattr(r, "error", None) and "Prism persistent 503" in r.error for r in results)
+
+
+def test_df_live_05_keyboard_interrupt_propagates_without_swallowing(tmp_path: Path):
+    with pytest.raises(KeyboardInterrupt):
+        run_scenario(
+            SCENARIOS["primes"],
+            harness_factory=lambda: RaisingHarness(KeyboardInterrupt()),
+            storage_dir=tmp_path / ".factory",
+            repeat=1,
+        )
+
+
+def test_df_live_05_run_eval_keyboard_interrupt_saves_partial_report(tmp_path: Path):
+    storage_dir = tmp_path / ".factory"
+    call_count = 0
+
+    def harness_factory():
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return AlwaysFixPrimesHarness()
+        return RaisingHarness(KeyboardInterrupt())
+
+    with pytest.raises(KeyboardInterrupt):
+        run_eval(
+            ["primes"],
+            harness_factory=harness_factory,
+            model="Phi-4-mini-instruct-cuda-gpu",
+            ollama_url="http://127.0.0.1:1",
+            prism_url="http://127.0.0.1:5272/v1",
+            storage_dir=storage_dir,
+            repeat=2,
+        )
+
+    reports = list_eval_reports(storage_dir)
+    assert len(reports) == 1
+    rep = load_report(reports[0])
+    assert len(rep.results) == 1
+    assert rep.results[0].converged
+
+
+def test_df_live_05_consecutive_backend_errors_across_scenarios_halts_campaign(tmp_path: Path):
+    from dark_factory.domain.errors import LocalEngineOfflineError
+
+    storage_dir = tmp_path / ".factory"
+    report = run_eval(
+        ["primes", "calculator"],
+        harness_factory=lambda: RaisingHarness(LocalEngineOfflineError("Offline")),
+        model="m",
+        ollama_url="http://127.0.0.1:1",
+        prism_url="http://127.0.0.1:2/v1",
+        storage_dir=storage_dir,
+        repeat=2,
+    )
+    # 2 attempts of primes + 1 attempt of calculator = 3 consecutive errors -> halts!
+    assert len(report.results) == 3
+
+
+def test_df_live_06_run_scenario_propagates_target_files_and_protected_paths(tmp_path: Path, monkeypatch):
+    from dark_factory.orchestrator.engine import DurableEngine
+
+    specs = []
+    original = DurableEngine.execute_run
+
+    def record(self, spec, harness=None, run_id=None, **kwargs):
+        specs.append(spec)
+        return original(self, spec=spec, harness=harness, run_id=run_id, **kwargs)
+
+    monkeypatch.setattr(DurableEngine, "execute_run", record)
+
+    run_scenario(
+        SCENARIOS["primes"],
+        harness_factory=AlwaysFixPrimesHarness,
+        storage_dir=tmp_path / ".factory",
+        repeat=1,
+    )
+
+    assert len(specs) == 1
+    assert specs[0].target_files == ["primes.py"]
+    assert specs[0].protected_paths == ["test_primes.py"]
+
+
+def test_df_live_06_out_of_scope_patch_fails_eval_run(tmp_path: Path):
+    class ExtraneousFileHarness(AgentHarness):
+        def execute_task(self, sandbox, task_prompt, target_files=None):
+            sandbox.write_file("primes.py", _FIXED_PRIMES.encode("utf-8"))
+            sandbox.write_file("stray_helper.py", b"def helper(): pass\n")
+            return HarnessResult(success=True, modified_files=["primes.py", "stray_helper.py"])
+
+    results = run_scenario(
+        SCENARIOS["primes"],
+        harness_factory=ExtraneousFileHarness,
+        storage_dir=tmp_path / ".factory",
+        repeat=1,
+    )
+    assert len(results) == 1
+    assert results[0].converged is False
+    assert results[0].status == "FAILED"
+    assert (
+        "out_of_scope" in (results[0].operator_notes or "").lower()
+        or "out-of-scope" in (results[0].operator_notes or "").lower()
+    )

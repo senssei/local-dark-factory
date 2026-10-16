@@ -267,3 +267,30 @@ def test_load_manifest_defaults_analysis_report_for_old_manifests(tmp_path: Path
     }
     (run_dir / "manifest.json").write_text(json.dumps(legacy))
     assert locker.load_manifest("run-no-an").analysis_report is None
+
+
+def test_df_live_07_response_metadata_round_trips_and_old_manifests_still_load(tmp_path):
+    import json
+
+    locker = EvidenceLocker(storage_dir=tmp_path)
+    manifest = EvidenceManifest.create(run_id="run-meta", repo_path="/tmp/r", base_rev="abc")
+    manifest.status = RunStatus.FAILED
+    manifest.model_telemetry = ModelTelemetry(
+        engine="prism", model_name="m", finish_reason="length", max_tokens=1024, reasoning_chars=42
+    )
+    locker.save_run(manifest, patch_content="", transcript="")
+
+    loaded = locker.load_manifest("run-meta")
+    assert (loaded.model_telemetry.finish_reason, loaded.model_telemetry.max_tokens) == ("length", 1024)
+    assert loaded.model_telemetry.reasoning_chars == 42
+
+    path = tmp_path / "runs" / "run-meta" / "manifest.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for key in ("finish_reason", "max_tokens", "reasoning_chars"):
+        del data["model_telemetry"][key]
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+    legacy = locker.load_manifest("run-meta")
+    assert legacy.model_telemetry.finish_reason is None
+    assert legacy.model_telemetry.max_tokens is None
+    assert legacy.model_telemetry.reasoning_chars == 0

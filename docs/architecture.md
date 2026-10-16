@@ -64,6 +64,7 @@ graph TD
 - **Directory Traversal Defense**: Enforces strict path bounds checking on all read/write operations.
 - **Bytecode Purging**: Cleans `__pycache__` and `*.pyc` before calculating git diffs.
 - **`restore_paths`**: Primitive that resets named paths to a baseline revision. It is *called by* the `VerificationRunner` (see Gate Tamper Protection below); the sandbox itself does not decide what is protected.
+- **Isolation Limit (Known)**: The sandbox isolates repository state and files via detached git worktrees, preventing concurrent runs from colliding and bounding workspace file modifications. It does not provide OS process, kernel namespace, or network isolation; verification steps and child processes execute directly on the host using the sanitized environment. Stronger process isolation is tracked in `plan.md` §10.5.
 
 ### 3. Verification & Self-Healing (`dark_factory.verification`)
 - **`VerificationRunner`**: Deterministic test runner executing structured `argv` commands sequentially.

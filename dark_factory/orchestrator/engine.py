@@ -37,8 +37,10 @@ from dark_factory.orchestrator.activities import (
     activity_execute_task_and_verify,
     activity_plan_task,
     activity_preserve_evidence,
+    parse_patch_files,
 )
 from dark_factory.storage.evidence import EvidenceLocker
+from dark_factory.verification.scope import check_patch_scope
 
 # Statuses recover() must leave untouched: terminal outcomes plus AWAITING_REVIEW, which is a
 # normal resting state (pending human review), not an orphan. Derived from RunStatus.is_terminal
@@ -63,6 +65,16 @@ def _trace(manifest: EvidenceManifest, phase: str) -> Generator[None, None, None
         manifest.phase_timings.append(
             PhaseTiming(phase=phase, duration_sec=round(time.monotonic() - start, 3), started_at=started_at)
         )
+
+
+def scope_violations(diff: str, target_files: list[str]) -> list[str]:
+    """Out-of-scope paths of `diff`; a header whose path cannot be parsed counts as a violation (fail closed)."""
+    paths = parse_patch_files(diff)
+    violations = check_patch_scope(paths, target_files)
+    headers = sum(1 for line in diff.splitlines() if line.startswith("diff --git "))
+    if headers > len(paths):
+        violations.append("<unparseable diff header>")
+    return violations
 
 
 class DurableEngine:
@@ -381,6 +393,23 @@ class DurableEngine:
                     timeout.healing_attempts += healing_attempts
                     timeout.telemetry = timeout.telemetry or telemetry
                     return finish_timed_out(timeout)
+
+            # 3.8. Patch-scope gate: a verified patch that touches paths outside the task's scope is not reviewable.
+            if final_status == RunStatus.AWAITING_REVIEW:
+                out_of_scope = scope_violations(diff, spec.target_files)
+                if out_of_scope:
+                    listed = ", ".join(out_of_scope[:10]) + (
+                        f" (+{len(out_of_scope) - 10} more)" if len(out_of_scope) > 10 else ""
+                    )
+                    if spec.allow_out_of_scope:
+                        manifest.operator_notes = f"Out-of-scope patch check bypassed (--allow-out-of-scope): {listed}."
+                    else:
+                        final_status = RunStatus.FAILED
+                        final_payload = {"reason": "out_of_scope_patch", "paths": out_of_scope}
+                        manifest.operator_notes = (
+                            f"Verification passed but the patch touches out-of-scope paths: {listed}. "
+                            "The diff is preserved; rerun with --allow-out-of-scope to accept it."
+                        )
 
             # 3.9. Advisory performance & quality analysis (verified, non-empty patches only; never alters status).
             if final_status == RunStatus.AWAITING_REVIEW and not spec.skip_analysis:

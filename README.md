@@ -56,6 +56,9 @@ Deterministic Verification Gates (test.sh / pytest / cargo / npm)
                Human-in-the-Loop Review Gate (dark-factory review --approve)
 ```
 
+> [!NOTE]
+> **Sandbox Isolation Scope**: Git worktrees isolate repository files and branch commits, preventing concurrent runs from colliding. They do not provide OS process or network isolation; verification steps execute on the host with the sanitized environment (stronger process sandboxing is tracked in [plan.md](plan.md) §10.5).
+
 ---
 
 ## 🚀 Quick Start (Development)

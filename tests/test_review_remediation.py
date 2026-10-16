@@ -21,9 +21,14 @@ def _auditor():
 
 
 def test_r1_hostile_severity_is_allowlisted_at_parse_time():
-    raw = '{"summary":"s","findings":[{"severity":"x\\" onmouseover=\\"alert(1)","summary":"a"}]}'
+    raw = (
+        '{"passed": false, "summary": "s", "findings": ['
+        '{"severity": "x\\" onmouseover=\\"alert(1)", "category": "security", "summary": "a", "details": "d"}]}'
+    )
     report = _auditor()._parse_response(raw)
     assert report.findings[0].severity == "WARN"
+    assert report.passed is False
+    assert "schema" in report.summary.lower()
 
 
 def test_r1_dashboard_escapes_badge_class():
@@ -51,9 +56,15 @@ def _render_detail(report):
 
 
 def test_r3_passed_is_derived_from_findings_not_model_flag():
-    raw = '{"passed": true, "summary": "ok", "findings": [{"severity": "CRITICAL", "summary": "bad"}]}'
+    raw = (
+        '{"passed": true, "summary": "ok", "findings": ['
+        '{"severity": "CRITICAL", "category": "security", "summary": "bad", "details": "d"}]}'
+    )
     assert _auditor()._parse_response(raw).passed is False
-    raw = '{"passed": "false", "summary": "ok", "findings": []}'
+    raw = (
+        '{"passed": false, "summary": "ok", "findings": ['
+        '{"severity": "INFO", "category": "boundary", "summary": "note", "details": "d"}]}'
+    )
     assert _auditor()._parse_response(raw).passed is True
 
 
@@ -77,7 +88,10 @@ def test_r4_planner_extracts_json_from_prose():
 
 
 def test_r8_json_fence_with_inner_backticks_is_parsed():
-    raw = '```json\n{"summary":"s","findings":[{"summary":"a","details":"use ``` here"}]}\n```'
+    raw = (
+        '```json\n{"passed":false,"summary":"s","findings":['
+        '{"severity":"WARN","category":"boundary","summary":"a","details":"use ``` here"}]}\n```'
+    )
     report = _auditor()._parse_response(raw)
     assert report.findings[0].details == "use ``` here"
 
@@ -149,7 +163,10 @@ def test_r15_json_extraction_prefers_the_answer_object():
 
     raw = 'It returns `{}` for empty input.\n{"summary":"bad","findings":[{"severity":"CRITICAL","summary":"x"}]}'
     assert extract_json_object(raw, keys=("findings", "summary"))["summary"] == "bad"
-    raw = '<think>unclosed {"findings":[]}\n{"findings":[{"severity":"CRITICAL","summary":"x"}]}'
+    raw = (
+        '<think>unclosed {"findings":[]}\n'
+        '{"passed":false,"summary":"bad","findings":[{"severity":"CRITICAL","category":"security","summary":"x","details":"d"}]}'
+    )
     assert _auditor()._parse_response(raw).badge == "CRITICAL"
 
 

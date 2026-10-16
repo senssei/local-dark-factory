@@ -104,33 +104,66 @@ class AdversarialAuditor:
         )
 
     def _parse_response(self, raw_text: str) -> AdversarialReport:
-        """Parse raw model output into structured AdversarialReport with graceful fallback."""
+        """Parse raw model output into structured AdversarialReport with strict schema validation."""
         try:
             data = extract_json_object(raw_text, keys=("findings", "summary", "passed"))
+            if not isinstance(data, dict):
+                raise ValueError("JSON output is not an object")
+
+            # Strict schema validation (P1)
+            if "passed" not in data:
+                raise ValueError("missing required field 'passed'")
+            if not isinstance(data["passed"], bool):
+                raise ValueError(f"field 'passed' must be a boolean, got {type(data['passed']).__name__}")
+
+            if "summary" not in data:
+                raise ValueError("missing required field 'summary'")
+            if not isinstance(data["summary"], str) or not data["summary"].strip():
+                raise ValueError("field 'summary' must be a non-empty string")
+
+            if "findings" not in data:
+                raise ValueError("missing required field 'findings'")
+            if not isinstance(data["findings"], list):
+                raise ValueError(f"field 'findings' must be a list, got {type(data['findings']).__name__}")
+
             findings: list[AdversarialFinding] = []
-            for item in data.get("findings", []):
-                severity = str(item.get("severity", "WARN")).strip().upper()
+            for idx, item in enumerate(data["findings"]):
+                if not isinstance(item, dict):
+                    raise ValueError(f"findings[{idx}] must be an object, got {type(item).__name__}")
+                for req in ("severity", "category", "summary", "details"):
+                    if req not in item:
+                        raise ValueError(f"findings[{idx}] missing required field '{req}'")
+                    if not isinstance(item[req], str):
+                        raise ValueError(f"findings[{idx}].{req} must be a string, got {type(item[req]).__name__}")
+                if not item["summary"].strip():
+                    raise ValueError(f"findings[{idx}].summary cannot be empty")
+                severity = item["severity"].strip().upper()
+                if severity not in _SEVERITIES:
+                    raise ValueError(
+                        f"findings[{idx}].severity must be one of {list(_SEVERITIES)}, got '{item['severity']}'"
+                    )
+
                 findings.append(
                     AdversarialFinding(
-                        severity=severity if severity in _SEVERITIES else "WARN",
-                        category=clean_text(str(item.get("category", "boundary")).lower()),
-                        summary=clean_text(str(item.get("summary", "Unspecified finding"))),
-                        details=clean_text(str(item.get("details", ""))),
+                        severity=severity,
+                        category=clean_text(item["category"].lower()),
+                        summary=clean_text(item["summary"]),
+                        details=clean_text(item["details"]),
                     )
                 )
 
             # The model's own "passed" flag is advisory text; the verdict is derived from the findings.
-            if data.get("passed") is False and not findings:
+            if data["passed"] is False and not findings:
                 findings.append(
                     AdversarialFinding(
                         severity="WARN",
                         category="regression",
                         summary="Auditor flagged a failure without findings",
-                        details=clean_text(str(data.get("summary", ""))),
+                        details=clean_text(data["summary"]),
                     )
                 )
             passed = not any(f.severity in ("WARN", "CRITICAL") for f in findings)
-            summary = clean_text(str(data.get("summary", "Audit completed.")))
+            summary = clean_text(data["summary"])
 
             return AdversarialReport(
                 passed=passed,
@@ -140,13 +173,13 @@ class AdversarialAuditor:
         except Exception as exc:
             return AdversarialReport(
                 passed=False,
-                summary=f"Adversarial audit produced unparseable output: {exc}",
+                summary=f"Adversarial audit produced unparseable output or invalid schema: {exc}",
                 findings=[
                     AdversarialFinding(
                         severity="WARN",
                         category="regression",
-                        summary="Malformed auditor response",
-                        details=raw_text[:500],
+                        summary="Malformed auditor response or invalid schema",
+                        details=f"{exc}. Raw text: {clean_text(raw_text[:500])}",
                     )
                 ],
             )

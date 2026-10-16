@@ -94,6 +94,9 @@ class SelfHealingLoop:
                         tokens_per_sec=t.tokens_per_sec,
                         cost_usd=0.0,
                         num_ctx=t.num_ctx,
+                        finish_reason=t.finish_reason,
+                        max_tokens=t.max_tokens,
+                        reasoning_chars=t.reasoning_chars,
                     )
                 else:
                     aggregated_telemetry.prompt_tokens += t.prompt_tokens
@@ -102,23 +105,43 @@ class SelfHealingLoop:
                     aggregated_telemetry.duration_sec = round(aggregated_telemetry.duration_sec + t.duration_sec, 3)
                     if t.num_ctx is not None:  # report the largest window any attempt used
                         aggregated_telemetry.num_ctx = max(aggregated_telemetry.num_ctx or 0, t.num_ctx)
+                    if t.max_tokens is not None:  # likewise the largest completion budget
+                        aggregated_telemetry.max_tokens = max(aggregated_telemetry.max_tokens or 0, t.max_tokens)
+                    aggregated_telemetry.finish_reason = t.finish_reason  # of the last call
+                    aggregated_telemetry.reasoning_chars += t.reasoning_chars
                     if aggregated_telemetry.duration_sec > 0:
                         aggregated_telemetry.tokens_per_sec = round(
                             aggregated_telemetry.completion_tokens / aggregated_telemetry.duration_sec, 2
                         )
 
+            elif aggregated_telemetry is not None:
+                aggregated_telemetry.finish_reason = None  # the last call reported nothing
+
             # If harness failed to generate or parse blocks, treat as a healing retry
             if not harness_result.success:
-                healing_attempts += 1
                 error_msg = harness_result.error or "Model did not output any recognizable file blocks."
-                if healing_attempts > self.max_retries:
+                if healing_attempts >= self.max_retries:
                     # No gate ran, so keep the reason in the evidence instead of an unexplained FAILED. The
                     # last failure was the harness's, so an earlier gate-failure streak no longer applies.
                     all_executions.append(StepExecution("harness", 1, "", error_msg, 0.0))
                     return False, healing_attempts, all_executions, aggregated_telemetry, 0
 
+                healing_attempts += 1
+
                 if status_callback:
                     status_callback(RunStatus.SELF_HEALING)
+
+                if harness_result.telemetry and harness_result.telemetry.finish_reason == "length":
+                    # The same request would hit the same token limit. Nothing was applied, so every needed
+                    # file must be re-sent: ask for a compact reply. (The error text is for the operator only.)
+                    current_prompt = (
+                        f"ORIGINAL TASK:\n{initial_prompt}\n\n"
+                        f"REPAIR ATTEMPT #{healing_attempts} OF {self.max_retries}:\n"
+                        "Your previous reply was cut off by the token limit and no file was written.\n\n"
+                        "Reply again with each file that must change as a complete ```file:<path> ... ``` block. "
+                        "Keep it compact: no explanation, no reasoning text, no comments beyond what the code needs."
+                    )
+                    continue
 
                 current_prompt = (
                     f"ORIGINAL TASK:\n{initial_prompt}\n\n"

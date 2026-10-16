@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import math
 import re
 import time
@@ -13,7 +14,7 @@ from dark_factory.domain.types import ModelTelemetry
 from dark_factory.harness.base import AgentHarness, HarnessResult
 from dark_factory.sandbox.base import Sandbox
 
-_FILE_OPEN_RE = re.compile(r"^(`{3,})file:(.*)$")
+_FILE_OPEN_RE = re.compile(r"^ {0,3}(`{3,})file:(.*)$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,})(.*)$")
 
 
@@ -53,6 +54,12 @@ class LocalCoderHarness(AgentHarness):
         self.prism_url = prism_url.rstrip("/")
         self.timeout = timeout
         self.max_num_ctx = max_num_ctx
+
+    def with_model(self, model: str) -> LocalCoderHarness:
+        """Return a copy of this harness for `model`; endpoints, timeout, window ceiling and subclass are kept."""
+        derived = copy.copy(self)
+        derived.model = model
+        return derived
 
     def check_health(self) -> dict[str, bool]:
         """Check availability of local engines."""
@@ -106,6 +113,30 @@ class LocalCoderHarness(AgentHarness):
 
         # Dispatch generation
         response_text, telemetry = self._call_model(system_prompt, user_prompt, output_reserve=reserve)
+
+        if telemetry.finish_reason == "length":
+            # A cut-off reply may hold complete-looking blocks while others are missing: apply none of it.
+            budget = telemetry.max_tokens if telemetry.max_tokens is not None else "the engine default"
+            return HarnessResult(
+                success=False,
+                telemetry=telemetry,
+                raw_response=response_text,
+                error=(
+                    f"Model reply was truncated (finish_reason=length) after {telemetry.completion_tokens} completion "
+                    f"tokens (budget: {budget}); no file was written because the reply may be incomplete. "
+                    "Narrow the context with --target-file PATH or shorten the task."
+                ),
+            )
+        if not response_text.strip() and telemetry.reasoning_chars > 0:
+            return HarnessResult(
+                success=False,
+                telemetry=telemetry,
+                raw_response=response_text,
+                error=(
+                    f"Model produced no answer: the reply content is empty and only {telemetry.reasoning_chars} "
+                    "characters of reasoning text were returned (reasoning is never executed)."
+                ),
+            )
 
         # Parse file blocks
         files_to_write = self._parse_file_blocks(response_text)
@@ -229,8 +260,10 @@ class LocalCoderHarness(AgentHarness):
                     tokens_per_sec=round(tps, 2),
                     cost_usd=0.0,
                     num_ctx=num_ctx,
+                    finish_reason=data.get("done_reason"),
+                    reasoning_chars=len(data.get("thinking") or ""),
                 )
-                return data.get("response", ""), telemetry
+                return data.get("response") or "", telemetry
             elif resp.status_code == 404:
                 ollama_err = f"Model '{self.model}' not found in Ollama (HTTP 404). Run 'ollama pull {self.model}'."
             else:
@@ -249,6 +282,7 @@ class LocalCoderHarness(AgentHarness):
                     {"role": "user", "content": user_prompt},
                 ],
                 "temperature": 0.2,
+                "max_tokens": max(1, output_reserve),
             }
             resp = requests.post(
                 f"{self.prism_url}/chat/completions",
@@ -265,7 +299,8 @@ class LocalCoderHarness(AgentHarness):
                 total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
                 tps = completion_tokens / duration if duration > 0 else 0.0
 
-                text = data["choices"][0]["message"]["content"]
+                choice = data["choices"][0]
+                text = choice["message"].get("content") or ""
                 telemetry = ModelTelemetry(
                     engine="prism",
                     model_name=self.model,
@@ -275,6 +310,9 @@ class LocalCoderHarness(AgentHarness):
                     duration_sec=round(duration, 3),
                     tokens_per_sec=round(tps, 2),
                     cost_usd=0.0,
+                    finish_reason=choice.get("finish_reason"),
+                    max_tokens=max(1, output_reserve),
+                    reasoning_chars=len(choice["message"].get("reasoning_content") or ""),
                 )
                 return text, telemetry
             else:

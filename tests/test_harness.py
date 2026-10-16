@@ -150,6 +150,38 @@ def test_parse_file_blocks_handles_crlf():
     assert blocks == [("a.py", "x = 1\r\n")]
 
 
+def test_parse_file_blocks_allows_up_to_three_leading_spaces():
+    """CommonMark code fences may be indented by 0 to 3 spaces (DF-LIVE-08)."""
+    harness = LocalCoderHarness()
+    # 1 space (as observed from Mistral-7B after [/INST])
+    response_1_space = " ```file:primes.py\ndef is_prime(n):\n    return True\n```"
+    blocks_1 = harness._parse_file_blocks(response_1_space)
+    assert len(blocks_1) == 1
+    assert blocks_1[0][0] == "primes.py"
+    assert "def is_prime(n):" in blocks_1[0][1]
+
+    # 2 spaces
+    response_2_spaces = "  ```file:calc.py\nx = 42\n  ```"
+    blocks_2 = harness._parse_file_blocks(response_2_spaces)
+    assert len(blocks_2) == 1
+    assert blocks_2[0][0] == "calc.py"
+    assert blocks_2[0][1] == "x = 42\n"
+
+    # 3 spaces
+    response_3_spaces = "   ```file:text.py\ny = 'hello'\n   ```"
+    blocks_3 = harness._parse_file_blocks(response_3_spaces)
+    assert len(blocks_3) == 1
+    assert blocks_3[0][0] == "text.py"
+    assert blocks_3[0][1] == "y = 'hello'\n"
+
+
+def test_parse_file_blocks_rejects_four_or_more_leading_spaces():
+    """In CommonMark, 4 or more leading spaces represent an indented code block, not a fenced code block."""
+    harness = LocalCoderHarness()
+    response_4_spaces = "    ```file:foo.py\nx = 1\n    ```"
+    assert harness._parse_file_blocks(response_4_spaces) == []
+
+
 class _FakeResponse:
     def __init__(self, data, status=200):
         self._data = data
@@ -287,3 +319,197 @@ def test_build_context_explicit_target_files_inlined_in_full_and_disable_detecti
 
 def test_plan_window_never_exceeds_a_small_ceiling():
     assert LocalCoderHarness(max_num_ctx=2048)._plan_window("a", "b", 1024) == 2048
+
+
+def test_with_model_keeps_endpoint_configuration():
+    original = LocalCoderHarness(
+        model="qwen2.5-coder:14b",
+        ollama_url="http://127.0.0.1:1/",
+        prism_url="http://127.0.0.1:2/v1",
+        timeout=42,
+        max_num_ctx=6144,
+    )
+
+    derived = original.with_model("Phi-4-mini-instruct-cuda-gpu")
+
+    assert derived is not original
+    assert derived.model == "Phi-4-mini-instruct-cuda-gpu"
+    assert derived.ollama_url == original.ollama_url
+    assert derived.prism_url == original.prism_url
+    assert derived.timeout == 42
+    assert derived.max_num_ctx == 6144
+    assert original.model == "qwen2.5-coder:14b"
+
+
+def test_with_model_preserves_the_harness_subclass():
+    class Recording(LocalCoderHarness):
+        extra = "kept"
+
+    derived = Recording(timeout=7).with_model("m")
+
+    assert type(derived) is Recording
+    assert derived.timeout == 7
+
+
+def _prism_ok(content="ok", finish_reason="stop", reasoning=None, completion_tokens=10):
+    message = {"content": content}
+    if reasoning is not None:
+        message["reasoning_content"] = reasoning
+    return _FakeResponse(
+        {
+            "choices": [{"message": message, "finish_reason": finish_reason}],
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": completion_tokens,
+                "total_tokens": 100 + completion_tokens,
+            },
+        }
+    )
+
+
+def _prism_only(prism_response):
+    """requests.post side effect: Ollama is unreachable, Prism answers `prism_response`."""
+    import requests
+
+    def post(url, **kwargs):
+        if "/api/generate" in url:
+            raise requests.ConnectionError("ollama down")
+        return prism_response
+
+    return post
+
+
+def test_df_live_02_prism_request_carries_the_output_reserve_as_max_tokens():
+    harness = LocalCoderHarness(max_num_ctx=16384)
+    with patch("dark_factory.harness.local_coder.requests.post", side_effect=_prism_only(_prism_ok())) as post:
+        _, telemetry = harness._call_model("sys", "user")
+        assert post.call_args.kwargs["json"]["max_tokens"] == 1024
+        assert telemetry.max_tokens == 1024
+        harness._call_model("sys", "user", output_reserve=2500)
+        assert post.call_args.kwargs["json"]["max_tokens"] == 2500
+
+
+def test_df_live_03_telemetry_keeps_the_prism_finish_reason_and_reasoning_length():
+    harness = LocalCoderHarness()
+    reply = _prism_ok(content="", finish_reason="length", reasoning="thinking hard", completion_tokens=1024)
+    with patch("dark_factory.harness.local_coder.requests.post", side_effect=_prism_only(reply)):
+        text, telemetry = harness._call_model("sys", "user")
+
+    assert text == ""
+    assert telemetry.finish_reason == "length"
+    assert telemetry.reasoning_chars == len("thinking hard")
+    assert telemetry.completion_tokens == 1024
+
+
+def test_df_live_03_telemetry_keeps_the_ollama_done_reason_and_sends_no_num_predict():
+    harness = LocalCoderHarness()
+    response = _FakeResponse(
+        {"response": "x", "prompt_eval_count": 10, "eval_count": 5, "done_reason": "length", "thinking": "abc"}
+    )
+    with patch("dark_factory.harness.local_coder.requests.post", return_value=response) as post:
+        _, telemetry = harness._call_model("sys", "user")
+
+    assert "num_predict" not in post.call_args.kwargs["json"]["options"]
+    assert telemetry.finish_reason == "length"
+    assert telemetry.reasoning_chars == 3
+    assert telemetry.max_tokens is None
+
+
+def test_df_live_03_missing_finish_reason_stays_unknown():
+    harness = LocalCoderHarness()
+    with patch("dark_factory.harness.local_coder.requests.post", return_value=_ollama_ok()):
+        _, telemetry = harness._call_model("sys", "user")
+    assert telemetry.finish_reason is None
+    assert telemetry.reasoning_chars == 0
+
+
+def _telemetry(finish_reason="stop", reasoning_chars=0, completion_tokens=1024, max_tokens=1024):
+    return ModelTelemetry(
+        engine="prism",
+        model_name="m",
+        completion_tokens=completion_tokens,
+        max_tokens=max_tokens,
+        finish_reason=finish_reason,
+        reasoning_chars=reasoning_chars,
+    )
+
+
+_TWO_FILES = "```file:a.py\nA = 1\n```\n```file:b.py\nB = 2\n```\n"
+
+
+def _run_with_reply(text, telemetry):
+    harness = LocalCoderHarness()
+    sandbox = MockSandbox()
+    with patch.object(harness, "_call_model", return_value=(text, telemetry)):
+        result = harness.execute_task(sandbox, "task")
+    return result, sandbox
+
+
+def test_df_live_03_length_reply_with_complete_blocks_writes_nothing():
+    result, sandbox = _run_with_reply(_TWO_FILES + "```file:c.py\nC =", _telemetry("length"))
+
+    assert not result.success
+    assert sandbox.files == {}
+    assert "truncated" in result.error.lower()
+    assert "1024" in result.error and "--target-file" in result.error
+    assert "recognizable" not in result.error
+    assert result.raw_response.startswith("```file:a.py")
+
+
+def test_df_live_03_length_reply_with_a_single_complete_block_also_writes_nothing():
+    result, sandbox = _run_with_reply("```file:a.py\nA = 1\n```\n", _telemetry("length"))
+
+    assert not result.success and sandbox.files == {}
+
+
+def test_df_live_03_stop_reply_with_the_same_blocks_is_applied():
+    result, sandbox = _run_with_reply(_TWO_FILES, _telemetry("stop"))
+
+    assert result.success
+    assert set(sandbox.files) == {"a.py", "b.py"}
+
+
+def test_df_live_07_empty_content_with_reasoning_is_reported_and_never_executed():
+    result, sandbox = _run_with_reply("", _telemetry("stop", reasoning_chars=900, completion_tokens=110))
+
+    assert not result.success and sandbox.files == {}
+    assert "reasoning" in result.error.lower() and "no answer" in result.error.lower()
+    assert "truncated" not in result.error.lower()
+
+
+def test_df_live_07_null_content_with_reasoning_reaches_the_no_answer_error():
+    harness = LocalCoderHarness()
+    sandbox = MockSandbox()
+    reply = _FakeResponse(
+        {
+            "choices": [
+                {
+                    "message": {"content": None, "reasoning_content": "```file:evil.py\nX = 1\n```"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
+        }
+    )
+    with patch("dark_factory.harness.local_coder.requests.post", side_effect=_prism_only(reply)):
+        result = harness.execute_task(sandbox, "task")
+
+    assert not result.success
+    assert sandbox.files == {}  # a file block inside the reasoning text is never applied
+    assert "no answer" in result.error.lower()
+    assert result.raw_response == ""
+
+
+def test_df_live_07_whitespace_only_content_with_reasoning_is_no_answer():
+    result, sandbox = _run_with_reply("  \n", _telemetry("stop", reasoning_chars=5))
+
+    assert not result.success and sandbox.files == {}
+    assert "no answer" in result.error.lower()
+
+
+def test_df_live_02_max_tokens_is_never_below_one():
+    harness = LocalCoderHarness(max_num_ctx=16384)
+    with patch("dark_factory.harness.local_coder.requests.post", side_effect=_prism_only(_prism_ok())) as post:
+        _, telemetry = harness._call_model("sys", "user", output_reserve=0)
+    assert post.call_args.kwargs["json"]["max_tokens"] == 1
+    assert telemetry.max_tokens == 1

@@ -69,6 +69,20 @@ Measured on this workstation (RTX 5070 12 GB, `qwen2.5-coder:14b`, a ~4800-token
 ### 2. Prism CUDA Accelerator (`http://127.0.0.1:5272/v1`)
 Prism is a high-throughput OpenAI-compatible inference server powered by ONNX Runtime GenAI and DirectML/CUDA.
 
+#### Completion budget, truncation and reasoning
+
+Prism's server defaults a reply to **512** tokens, which silently cuts a whole-file answer short. The harness therefore sends
+an explicit `max_tokens` equal to the call's output reserve (at least 1024, and for a coding call at least the size of the
+inlined files). Prism may still clamp the reply to the model's remaining window.
+
+- When the engine reports `finish_reason=length` (Ollama: `done_reason`), the reply is treated as cut off: **no file is written**,
+  even if complete-looking `file:` blocks came back, and the error names the tokens used and the budget. The self-healing loop
+  then re-prompts for a compact reply (it says that no file was written), instead of repeating the same request. If the reply keeps being cut off, the run ends `FAILED` with the reason. Narrow the context with
+  `--target-file PATH` if it keeps happening.
+- Reasoning text (`reasoning_content`, `thinking`) is never parsed or executed. Only its length is recorded. An empty reply with
+  reasoning present fails as "no answer", not as a formatting error.
+- `telemetry.json` records `finish_reason`, `max_tokens` and `reasoning_chars`, so an eval or a failed run shows why it ended.
+
 ### GPU compatibility
 
 | Backend | Accelerators documented by this project |
