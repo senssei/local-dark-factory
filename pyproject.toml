@@ -16,6 +16,38 @@ dependencies = [
     "requests>=2.31.0"
 ]
 
+keywords = [
+    "ai",
+    "code-generation",
+    "local-llm",
+    "autonomous-agents",
+    "sdlc",
+    "offline",
+    "zero-cloud",
+    "sovereign-ai",
+]
+
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Code Generators",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://senssei.github.io/local-dark-factory/"
+Source = "https://github.com/senssei/local-dark-factory"
+Documentation = "https://senssei.github.io/local-dark-factory/"
+Changelog = "https://github.com/senssei/local-dark-factory/blob/main/CHANGELOG.md"
+Issues = "https://github.com/senssei/local-dark-factory/issues"
+
 [tool.setuptools.packages.find]
 include = ["dark_factory*"]
 
